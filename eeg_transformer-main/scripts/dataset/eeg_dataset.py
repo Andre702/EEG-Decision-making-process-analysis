@@ -7,7 +7,7 @@ class EEGDataset(Dataset):
     def __init__(self, X: ndarray, y: ndarray, cnn_mode=False):
         self.X = torch.tensor(X, dtype=torch.float32)
         if cnn_mode:
-            self.X = self.X.unsqueeze(1)  # CNN models require 4 dimensions
+            self.X = self.X.unsqueeze(1)  # CNN model_testing require 4 dimensions
         self.y = torch.tensor(y, dtype=torch.long)
 
     def __len__(self):

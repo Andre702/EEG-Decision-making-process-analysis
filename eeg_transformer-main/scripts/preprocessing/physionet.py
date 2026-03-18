@@ -14,7 +14,7 @@ The preprocessing is done as specified in article:
 
 For each subject, 21 trials were selected per class. Each trial lasted 8 seconds, with the
 first 2s for rest, the following 4s for motor imagery, and the last 2s for rest.
-3s (480 samples) and 6s (960 samples) segments of EEGdata were used to train and test our models.
+3s (480 samples) and 6s (960 samples) segments of EEGdata were used to train and test our model_testing.
 We used both 3s and 6s data for the classification. 3s data included the first 3s data from the motor imagery period,
 and 6s data included the entire motor imagery period as well as one second before
 and one second after the motor imagery period.
