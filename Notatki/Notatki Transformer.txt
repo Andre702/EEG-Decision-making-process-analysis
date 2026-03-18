@@ -1,0 +1,34 @@
+Transformer model to architektura sieci neuronowej której głównym założeniem jest patrzenie na całokształt
+Transformer nie przetwarza danych krok po kroku tylko wszystkie jednocześnie. 
+Jego główną strategią jest znalezienie powiązań między częściami, wyróżnionych części i szczególnych cech sygnału.
+
+Zalety:
+Transformer patrzy na cały sygnał na raz więc działa równolegle, co znacząco przyspiesza jego trening.
+
+Wady:
+Wymaga kontekstu czasowego jeżeli ma przetwarzać sygnały. 
+Transformer patrzy na cały sygnał na raz więc nie zna kolejności części które przetwarza w tym momencie. 
+Potrzebuje zatem wektora pozycji do sygnału wejściowego
+
+Dlaczego Transformer dobrze nadaje się do przetwarzania sygnałów elektroencefalograficznych? (Electro-Ence-Phalo-Graphy)
+Sygnał EEG jest specyficzny: pochodzi z wielu źródeł pozycyjnych, jest mocno zaszumiony, 
+jego pomiar rozkłada się całkiem długo w czasie, a relacje między sygnałami są złożone i potencjalnie bardzo ważne. 
+Transformer radzi sobie z tym dzięki trzem cechom:
+- Wyłapywanie zależności długoterminowych
+(Transformer może bez problemu skojarzyć punkt A z bardzo odległym w czasie punktem B)
+- Bezproblemowa analiza przestrzenna
+(Transformer może analizować poszczególne informacje [wyłapane akcje mózgu] jako części większej siatki komunikacji - w końcu tak działa mózg
+Zwykła CNN (splotowa) analizuje dane głównie pod względem sąsiadów, jednak sygnały w mózgu mogą być przesyłane do różnych części bardzo szybko)
+- Odporność na zmiany
+(Transformer może dynamicznie zmieniać "wagi atencji" co pomaga w przypadku gdy sygnały nagle zmienią charakterystykę
+Przy badaniu mózgu dzieje się to bardzo często, wystarczy że badany zamknie oczy lub zwyczajnie 
+rozluźni się momentalnie, wtedy sygnały zaczną pojawiać się w zupełnie innych obszarach mózgu)
+
+W praktyce jednak mimo, że Transformer ma na celu patrzenie na całokształt, przetwarzanie całego pełnego nagrania sygnałów EEG na raz jest zwyczajnie niemożliwe
+Sygnały pomierzone nowymi sprzętami mogą mieć 256 elektrod z czego każda nagrywa sygnały ze swojego miejsca przez przykładowo kilkanaście sekund
+Pangolin reklamuje swoje specjalne elektrody upakowane po 16 na plaster więc elektrod mogłoby być nawet więcej.
+Sama ilość tych wszystkich nagrań to zdecydowanie za dużo dla dowolnego modelu do przetworzenia, 
+pamięć zostałaby szybko zapchana jeżeli miałby zapamiętać wszystko co do tej pory przetworzył żeby zachować obraz całokształtu.
+Stosuje się zatem strategie takie jak Patching i wysyła sygnał w seriach na przykład po 50 ms.
+Transformer wciąż traktuje te serie jako część całości
+CZY MOŻE ZATEM WRACAĆ DO DANEGO WYCINKA? DOWIADYWAĆ SIĘ DETALI JEŻELI POTRZEBUJE?!

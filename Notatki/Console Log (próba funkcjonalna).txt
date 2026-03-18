@@ -1,0 +1,122 @@
+Inicjalizacja WARIANT: 6s, BATCH=32, LR=0.0007, D_MODEL=128
+Loading normalized data from ./preprocessed_data/Physionet (variant: 6s)...
+Dane: 84 epok. Kanały: 64, Czas: 961
+Klasy: (array([0, 1]), array([42, 42], dtype=int64))
+Urządzenie: cuda
+
+--- Fold 1 ---
+Ep 05: Loss=0.6758, TrAcc=70.15%, TsAcc=58.82%
+Ep 10: Loss=0.6174, TrAcc=79.10%, TsAcc=52.94%
+Ep 15: Loss=0.4768, TrAcc=76.12%, TsAcc=64.71%
+Ep 20: Loss=0.2562, TrAcc=94.03%, TsAcc=82.35%
+Ep 25: Loss=0.9137, TrAcc=55.22%, TsAcc=70.59%
+Ep 30: Loss=0.2059, TrAcc=95.52%, TsAcc=94.12%
+Ep 35: Loss=0.0609, TrAcc=98.51%, TsAcc=94.12%
+Ep 40: Loss=0.0195, TrAcc=100.00%, TsAcc=94.12%
+Ep 45: Loss=0.0039, TrAcc=100.00%, TsAcc=94.12%
+Ep 50: Loss=0.0012, TrAcc=100.00%, TsAcc=88.24%
+Ep 55: Loss=0.0015, TrAcc=100.00%, TsAcc=94.12%
+Ep 60: Loss=0.0007, TrAcc=100.00%, TsAcc=100.00%
+Best Test Acc Fold 1: 100.00%
+
+--- Fold 2 ---
+Ep 05: Loss=0.7429, TrAcc=47.76%, TsAcc=41.18%
+Ep 10: Loss=0.6958, TrAcc=47.76%, TsAcc=58.82%
+Ep 15: Loss=0.6789, TrAcc=52.24%, TsAcc=58.82%
+Ep 20: Loss=0.7173, TrAcc=52.24%, TsAcc=41.18%
+Ep 25: Loss=0.6233, TrAcc=58.21%, TsAcc=47.06%
+Ep 30: Loss=0.3569, TrAcc=86.57%, TsAcc=76.47%
+Ep 35: Loss=0.2467, TrAcc=89.55%, TsAcc=88.24%
+Ep 40: Loss=0.3619, TrAcc=85.07%, TsAcc=82.35%
+Ep 45: Loss=0.1711, TrAcc=94.03%, TsAcc=76.47%
+Ep 50: Loss=0.0698, TrAcc=98.51%, TsAcc=76.47%
+Ep 55: Loss=0.0235, TrAcc=100.00%, TsAcc=82.35%
+Ep 60: Loss=0.0065, TrAcc=100.00%, TsAcc=76.47%
+Best Test Acc Fold 2: 88.24%
+
+--- Fold 3 ---
+Ep 05: Loss=0.7304, TrAcc=46.27%, TsAcc=64.71%
+Ep 10: Loss=0.7522, TrAcc=46.27%, TsAcc=64.71%
+Ep 15: Loss=0.6577, TrAcc=53.73%, TsAcc=82.35%
+Ep 20: Loss=0.5929, TrAcc=64.18%, TsAcc=76.47%
+Ep 25: Loss=0.5562, TrAcc=74.63%, TsAcc=76.47%
+Ep 30: Loss=0.2175, TrAcc=89.55%, TsAcc=82.35%
+Ep 35: Loss=0.0465, TrAcc=98.51%, TsAcc=76.47%
+Ep 40: Loss=0.0036, TrAcc=100.00%, TsAcc=76.47%
+Ep 45: Loss=0.0009, TrAcc=100.00%, TsAcc=76.47%
+Ep 50: Loss=0.0006, TrAcc=100.00%, TsAcc=82.35%
+Ep 55: Loss=0.0005, TrAcc=100.00%, TsAcc=82.35%
+Ep 60: Loss=0.0004, TrAcc=100.00%, TsAcc=76.47%
+Best Test Acc Fold 3: 82.35%
+
+--- Fold 4 ---
+Ep 05: Loss=0.7441, TrAcc=50.75%, TsAcc=47.06%
+Ep 10: Loss=0.6782, TrAcc=50.75%, TsAcc=47.06%
+Ep 15: Loss=0.7340, TrAcc=49.25%, TsAcc=52.94%
+Ep 20: Loss=0.5855, TrAcc=68.66%, TsAcc=76.47%
+Ep 25: Loss=0.3066, TrAcc=86.57%, TsAcc=64.71%
+Ep 30: Loss=0.2480, TrAcc=91.04%, TsAcc=70.59%
+Ep 35: Loss=0.0497, TrAcc=98.51%, TsAcc=82.35%
+Ep 40: Loss=0.2501, TrAcc=91.04%, TsAcc=52.94%
+Ep 45: Loss=0.0809, TrAcc=97.01%, TsAcc=76.47%
+Ep 50: Loss=0.0064, TrAcc=100.00%, TsAcc=82.35%
+Ep 55: Loss=0.0027, TrAcc=100.00%, TsAcc=82.35%
+Ep 60: Loss=0.0018, TrAcc=100.00%, TsAcc=82.35%
+Best Test Acc Fold 4: 88.24%
+
+--- Fold 5 ---
+Ep 05: Loss=0.8552, TrAcc=50.00%, TsAcc=50.00%
+Ep 10: Loss=0.6995, TrAcc=50.00%, TsAcc=50.00%
+Ep 15: Loss=0.5780, TrAcc=79.41%, TsAcc=50.00%
+Ep 20: Loss=0.3141, TrAcc=88.24%, TsAcc=75.00%
+Ep 25: Loss=0.1552, TrAcc=97.06%, TsAcc=87.50%
+Ep 30: Loss=0.0056, TrAcc=100.00%, TsAcc=81.25%
+Ep 35: Loss=0.0011, TrAcc=100.00%, TsAcc=81.25%
+Ep 40: Loss=0.0008, TrAcc=100.00%, TsAcc=81.25%
+Ep 45: Loss=0.0007, TrAcc=100.00%, TsAcc=81.25%
+Ep 50: Loss=0.0006, TrAcc=100.00%, TsAcc=81.25%
+Ep 55: Loss=0.0005, TrAcc=100.00%, TsAcc=81.25%
+Ep 60: Loss=0.0005, TrAcc=100.00%, TsAcc=81.25%
+Best Test Acc Fold 5: 87.50%
+
+Średnia ze wszystkich foldów: 89.26%
+
+============================================================
+Analiza klasyfikacji próbek przez Captum z testowego setu
+============================================================
+Obliczanie całek gradientów
+
+============================================================
+Podwójne profile uwagi. Znaleziono 9 podwójnych skoków (przed i po 3. sekundzie)
+============================================================
+
+============================================================
+Top 3 próbek pod względem pewność absolutnej jednej z klas
+============================================================
+
+Próbka #1 | ID Próbki: 3 | Siła gradientu: 0.10
+Wynik klasyfikacji: Lewa Ręka (0) -> Klasyfikacja Poprawna
+
+Próbka #2 | ID Próbki: 16 | Siła gradientu: 0.09
+Wynik klasyfikacji: Lewa Ręka (0) -> Klasyfikacja Poprawna
+
+Próbka #3 | ID Próbki: 8 | Siła gradientu: 0.09
+Wynik klasyfikacji: Lewa Ręka (0) -> Klasyfikacja Poprawna
+
+============================================================
+Top 3 próbek pod względem różnicy gradientów obu klas
+============================================================
+
+Próbka #1 | ID Próbki: 4
+Gradient ku klasie poprawnej 0.22 | Gradient ku klasie błędnej -0.16
+Wynik klasyfikacji: Lewa Ręka (0) -> Klasyfikacja Poprawna
+
+Próbka #2 | ID Próbki: 10
+Gradient ku klasie poprawnej 0.16 | Gradient ku klasie błędnej -0.19
+Wynik klasyfikacji: Prawa Ręka (1) -> Klasyfikacja Poprawna
+
+Próbka #3 | ID Próbki: 15
+Gradient ku klasie poprawnej 0.21 | Gradient ku klasie błędnej -0.14
+Wynik klasyfikacji: Lewa Ręka (0) -> Klasyfikacja Poprawna
+
+Process finished with exit code 0
