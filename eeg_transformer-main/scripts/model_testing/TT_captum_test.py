@@ -76,7 +76,7 @@ def main():
     # Model nałożony, wrzucamy go w tryb oceniania (bardzo ważne przed Captum)
     model.to(device)
     model.eval()
-    print(f"Wiedza modelu z pliku {MODEL_PATH} została załadowana poprawnie!")
+    print(f"Wgrany model z pliku: {MODEL_PATH}")
 
     # Dane testowe do klasyfikacji dla modelu
     test_ds = data.SimpleEEGDataset(X_all[:300], y_all[:300])

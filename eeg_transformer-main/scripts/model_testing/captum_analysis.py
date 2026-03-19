@@ -152,6 +152,8 @@ def analyze_bulk(model, test_loader, device, max_samples=200):
 
         drawn += 1
 
+        input("...")
+
     # Wykresy Top 3 najlepiej ukierunkowanych próbek ---------------------------------------------------------------------------------
     # Są to wykresy próbek najprostszych dla sieci do sklasyfikowania. Czyli tych, które miały największy bias do jednej konkretnej klasy.
     # Nie oznacza to jednak, że sieć faktycznie poprawnie sklasyfikowała próbkę.
@@ -199,6 +201,7 @@ def analyze_bulk(model, test_loader, device, max_samples=200):
 
         plt.tight_layout()
         plt.show()
+        input("...")
 
     # Wykresy Top 3 próbki najbardziej nieukierunkowanych ------------------------------------------------------------
     print("\n" + "=" * 60)
@@ -259,3 +262,4 @@ def analyze_bulk(model, test_loader, device, max_samples=200):
 
         plt.tight_layout()
         plt.show()
+        input("...")
