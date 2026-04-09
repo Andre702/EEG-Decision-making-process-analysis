@@ -83,7 +83,24 @@ def main():
     test_loader = DataLoader(test_ds, batch_size=32, shuffle=False)
 
     # Test wytłumaczalności:
-    captum.analyze_bulk(model, test_loader, device, max_samples=60)
+    wyniki_badania = captum.compute_captum_analysis(model, test_loader, device, sfreq=160.0)
+
+    captum.plot_top_biased(wyniki_badania, top_n=3)
+    captum.plot_top_conflicted(wyniki_badania, top_n=2)
+    captum.plot_dual_peaks(wyniki_badania, limit=4)
+    # captum.analyze_bulk(model, test_loader, device, max_samples=60)
+
+    # Total absolute network attention
+    heatmap_all = captum.extract_global_heatmap_data(wyniki_badania, mode='all')
+    captum.plot_global_heatmap_and_bars(heatmap_all, wyniki_badania, title_suffix="Global / Total Impact")
+
+    # Attention pointing TOWARDS the correct classification
+    heatmap_correct = captum.extract_global_heatmap_data(wyniki_badania, mode='correct_direction')
+    captum.plot_global_heatmap_and_bars(heatmap_correct, wyniki_badania, title_suffix="Correct Class Support")
+
+    # Attention pointing AWAY from the correct classification (Conflict/Noise)
+    heatmap_wrong = captum.extract_global_heatmap_data(wyniki_badania, mode='incorrect_direction')
+    captum.plot_global_heatmap_and_bars(heatmap_wrong, wyniki_badania, title_suffix="Incorrect Class Influence (Noise/Error)")
 
     # # Dane -----------------------------------------------------------
     # print(f"Dane: {SEGMENT_TYPE}, BATCH={BATCH_SIZE}, LR={LR}, D_MODEL={D_MODEL}")
