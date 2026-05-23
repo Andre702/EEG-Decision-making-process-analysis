@@ -1,0 +1,3 @@
+        # In TemporalTransformer with 'raw' method, forward() applies:
+        # squeeze(1).permute(2, 0, 1) -> resulting shape is (Time, Batch, Channels)
+        # Therefore, the Linear embedding layer expects 'Channels' as its input_size.

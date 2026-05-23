@@ -67,7 +67,7 @@ class TemporalTransformer(nn.Module):
         self.embedding = nn.Linear(input_size, d_model)
         self.pos_encoder = PositionalEncoding(d_model)
 
-        # 3 bloki transformera (zgodnie z kodem)
+        # Transformer blocks
         self.transformer = nn.Sequential(
             TransformerBlock(d_model, nhead),
             TransformerBlock(d_model, nhead),

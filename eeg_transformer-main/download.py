@@ -150,13 +150,13 @@ def main() -> None:
         case "bci2b":
             download_BCI_IV_2b(path=f"{DATA_BASE_DIR}/BCI_IV_2b")
         case "physionet":
-            download_Physionet(path=f"{DATA_BASE_DIR}/Physionet", num_patients=2)
+            download_Physionet(path=f"{DATA_BASE_DIR}/Physionet")
         case _:
             logger.info("Downloading all datasets")
             download_BCI_III_3a(path=f"{DATA_BASE_DIR}/BCI_III_3a")
             download_BCI_IV_2a(path=f"{DATA_BASE_DIR}/BCI_IV_2a")
             download_BCI_IV_2b(path=f"{DATA_BASE_DIR}/BCI_IV_2b")
-            download_Physionet(path=f"{DATA_BASE_DIR}/Physionet", num_patients=2)
+            download_Physionet(path=f"{DATA_BASE_DIR}/Physionet")
 
 
 if __name__ == "__main__":
