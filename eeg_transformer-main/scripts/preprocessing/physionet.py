@@ -83,7 +83,7 @@ def __extract(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
     # PICK ONLY EEG
     picks = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False, exclude="bads")
     tmin_3s, tmax_3s = 2.0, 5.0
-    tmin_6s, tmax_6s = -1.5, 4.5
+    tmin_6s, tmax_6s = 0, 6
 
     epochs_3s = mne.Epochs(
         raw_data,

@@ -345,41 +345,38 @@ def train_cross_individual(subject_data, model_class, device, epochs=30, batch_s
 
 
 def main():
+    TEST_PATIENT_SET_LEN = 15
     DATA_PATH = "./preprocessed_data/Physionet"
 
     # count_bci_samples("./preprocessed_data")
 
     MODEL_PATH = "./saved_model_states/temporal_transformer.pth"
-    MODEL_PATH_EXTENDED = "./saved_model_states/temporal_transformer_6s_pro.pth"
-    SEGMENT_TYPE = "6s"
+    SEGMENT_TYPE = "3s"
+    MODEL_PATH_EXTENDED = f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}.pth"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {DEVICE}")
 
-
-    # X_all, y_all = data.load_physionet_data(DATA_PATH, segment_type=SEGMENT_TYPE)
-
     subject_data,time_array, t0_idx = data.load_physionet_separate_patient_data(DATA_PATH, segment_type=SEGMENT_TYPE)
-    best_model, best_test_loader = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
-    torch.save(best_model, MODEL_PATH_EXTENDED)
 
-    #     = train_and_save_model_5fold(
-    #     X_all=X_all,
-    #     y_all=y_all,
-    #     device=DEVICE,
-    #     save_path=MODEL_PATH_EXTENDED,
-    #     epochs=10,
-    #     batch_size=32,
-    #     lr=0.0001,
-    #     d_model=64,
-    #     n_head=8
-    # )
+    training_subject_data = data.split_dataset_return_training(
+        subject_data=subject_data,
+        test_patient_count=TEST_PATIENT_SET_LEN,
+        batch_size=16
+    )
+
+    # best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
+    # torch.save(best_model, MODEL_PATH_EXTENDED)
+    # # # Train or Load -----------------------------------
+    best_model = torch.load(MODEL_PATH_EXTENDED, map_location=DEVICE)
+    best_model.eval()
 
     best_model.to(DEVICE)
     best_model.eval()
 
-    # Test wytłumaczalności:
-    results = captum.compute_captum_analysis(best_model, best_test_loader, DEVICE, sfreq=160.0)
+    # Explainability test:
+    test_loader = torch.load("saved_model_states/global_data_loader/test_loader_batch_16.pth")
+    results = captum.compute_captum_analysis(best_model, test_loader, DEVICE, sfreq=160.0)
 
     captum.plot_top_biased(results, top_n=3)
     captum.plot_top_conflicted(results, top_n=2)
@@ -398,86 +395,6 @@ def main():
     heatmap_wrong = captum.extract_global_heatmap_data(results, mode='incorrect_direction')
     captum.plot_global_heatmap_and_bars(heatmap_wrong, results, title_suffix="Incorrect Class Influence (Noise/Error)")
 
-
-def load_eeg_dataset(data_dir: str, dataset_name: str = "physionet", segment_type: str = "6s") -> tuple[
-    np.ndarray, np.ndarray]:
-    """
-    Unified function to load and normalize preprocessed MNE epochs from different datasets.
-
-    Parameters:
-    - data_dir: Root directory containing subject folders (e.g., 'S001', 'S1').
-    - dataset_name: Either 'physionet' or 'bci3a'.
-    - segment_type: Only used for physionet ('3s' or '6s').
-
-    Returns:
-    - X (np.ndarray): Scaled EEG features (samples, channels, time).
-    - y (np.ndarray): Binary labels (0 for left hand, 1 for right hand).
-    """
-
-    if dataset_name not in ["physionet", "bci3a"]:
-        raise ValueError("Invalid dataset_name. Use 'physionet' or 'bci3a'.")
-
-    all_x, all_y = [], []
-    subjects = [f for f in sorted(os.listdir(data_dir)) if os.path.isdir(os.path.join(data_dir, f))]
-
-    print(f"Loading {dataset_name.upper()} data from {data_dir}...")
-
-    for subj_folder in subjects:
-        subj_path = os.path.join(data_dir, subj_folder)
-
-        # --- DATASET SPECIFIC CONFIGURATION ---
-        if dataset_name == "physionet":
-            # Folder S001 generates PA001-6s-epo.fif
-            subject_id = subj_folder[1:4]
-            expected_filename = f"PA{subject_id}-{segment_type}-epo.fif"
-            left_id, right_id = 2, 3
-
-        elif dataset_name == "bci3a":
-            # Folder S1 generates 1-epo.fif
-            subject_id = subj_folder[1:3]
-            expected_filename = f"{subject_id}-epo.fif"
-            left_id, right_id = 3, 4
-
-        file_path = os.path.join(subj_path, expected_filename)
-
-        if not os.path.exists(file_path):
-            print(f"Warning: File {file_path} not found. Skipping subject {subj_folder}.")
-            continue
-
-        try:
-            epochs = mne.read_epochs(file_path, preload=True, verbose=False)
-
-            # Filter out any unintended events keeping only left and right hand
-            target_events = [left_id, right_id]
-            epochs = epochs[np.isin(epochs.events[:, -1], target_events)]
-
-            X = epochs.get_data(copy=True)
-            y = epochs.events[:, -1]
-
-            # Binary classification mapping: Left Hand -> 0, Right Hand -> 1
-            y = np.where(y == left_id, 0, 1)
-
-            # Normalization: per-channel z-score across time axis
-            mean = np.mean(X, axis=2, keepdims=True)
-            std = np.std(X, axis=2, keepdims=True)
-            std[std == 0] = 1.0
-            X = (X - mean) / std
-
-            all_x.append(X)
-            all_y.append(y)
-
-        except Exception as e:
-            print(f"Skipped {subj_folder} due to error: {e}")
-
-    if not all_x:
-        raise ValueError(f"No valid .fif files loaded for dataset '{dataset_name}'.")
-
-    # Concatenate all subjects and cast to standard neural network types
-    final_x = np.concatenate(all_x).astype(np.float32)
-    final_y = np.concatenate(all_y).astype(np.int64)
-
-    print(f"Successfully loaded. Total shape: X={final_x.shape}, y={final_y.shape}")
-    return final_x, final_y
 
 if __name__ == "__main__":
     main()

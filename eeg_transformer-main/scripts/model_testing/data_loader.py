@@ -2,7 +2,8 @@ import os
 import numpy as np
 import torch
 import mne
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+
 
 # Ładowanie danych =====================================================================================
 class SimpleEEGDataset(Dataset):
@@ -81,11 +82,11 @@ def load_physionet_data(data_dir, segment_type="6s"): #Bazowo tylko 6-sekundowe 
 
 def load_physionet_separate_patient_data(data_dir, segment_type="6s"):
     """
-    Loads EEG samples assigning it to the separate keys (patient names) For Cross-Individual testing
+    Loads EEG samples from Physionet data assigning it to the separate keys (patient names)
     """
     subject_data = {}
     subjects = sorted(os.listdir(data_dir))
-    print(f"Loading normalized data from {data_dir} (variant: {segment_type})...")
+    print(f"Loading Physionet preprocessed data from {data_dir} (variant: {segment_type})...")
 
     time_array = None
     t0_idx = None
@@ -119,14 +120,14 @@ def load_physionet_separate_patient_data(data_dir, segment_type="6s"):
                 continue  # Patient does not have event daya, omit patient
 
             epochs = epochs[mask]
-            X = epochs.get_data(copy=True)
+            x = epochs.get_data(copy=True)
             y = epochs.events[:, -1]
 
             # Mapping left hand (2) = 0, right hand (3) = 1
             y = np.where(y == 2, 0, 1)
 
             # Save to dictionary
-            subject_data[subj_folder] = (X, y)
+            subject_data[subj_folder] = (x, y)
 
         except Exception as e:
             print(f"Skipping patient {subj_folder}. Error: {e}")
@@ -140,6 +141,106 @@ def load_physionet_separate_patient_data(data_dir, segment_type="6s"):
         print(f"Test beginning (t=0) is at index: {t0_idx}")
 
     return subject_data, time_array, t0_idx
+
+
+def load_bci_separate_patient_data(data_dir):
+    """
+    Loads EEG samples From BCI data assigning it to the separate keys (patient names)
+    """
+    subject_data = {}
+    subjects = sorted(os.listdir(data_dir))
+    print(f"Loading BCI preprocessed data from {data_dir}")
+
+    time_array = None
+    t0_idx = None
+
+    for subj_folder in subjects:
+        subj_path = os.path.join(data_dir, subj_folder)
+        if not os.path.isdir(subj_path):
+            continue
+
+        expected_filename = f"PA{subj_folder[1:3]}T-epo.fif"
+        file_path = os.path.join(subj_path, expected_filename)
+
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            epochs = mne.read_epochs(file_path, preload=True, verbose=False)
+
+            if time_array is None:
+                time_array = epochs.times
+                # Find index where time is closest to 0.0
+                t0_idx = np.argmin(np.abs(time_array - 0.0))
+
+            # This assumes that events (left, right) are mapped to 0 and 1
+            x = epochs.get_data(copy=True)
+            y = epochs.events[:, -1]  # Values are strictly 0 and 1 now
+
+            subject_data[subj_folder] = (x, y)
+
+        except Exception as e:
+            print(f"Skipping {subj_folder}. Error: {e}")
+
+    if not subject_data:
+        raise ValueError(f"No valid BCI files found in {data_dir}")
+
+    print(f"Loaded {len(subject_data)} patients data.")
+    if time_array is not None:
+        print(f"Sample time starts at: {time_array[0]:.2f}s, ends at {time_array[-1]:.2f}s.")
+        print(f"Test beginning (t=0) is at index: {t0_idx}")
+
+    return subject_data, time_array, t0_idx
+
+def split_dataset_return_training(subject_data, test_patient_count=15, batch_size=32):
+    """
+    Randomly splits the dataset into a separate, isolated global test set
+    and a remaining set for model training/cross-validation.
+    Saves the global test dataloader.
+    Returns remaining data for training.
+    """
+    print("\n" + "=" * 50)
+    print("Splitting dataset into training and global test set")
+    print("=" * 50)
+
+    # Gets all patient IDs, shuffles them (consistently - seed 702)
+    all_subjects = np.array(list(subject_data.keys()))
+    np.random.seed(702)
+    np.random.shuffle(all_subjects)
+
+    if len(all_subjects) <= test_patient_count:
+        raise ValueError(f"!Not enough patients to create the hold-out set of set size {test_patient_count}.")
+
+    # Splitting into test and training
+    global_test_subjects = all_subjects[:test_patient_count]
+    training_subjects = all_subjects[test_patient_count:]
+
+    print(f"Global test set: {len(global_test_subjects)} patients.")
+    print(f"Returning remaining: {len(training_subjects)} patients.")
+
+    # Extract data for the Global test set
+    x_test_list, y_test_list = [], []
+    for subj in global_test_subjects:
+        x, y = subject_data[subj]
+        x_test_list.append(x)
+        y_test_list.append(y)
+
+    x_global_test = np.concatenate(x_test_list, axis=0)
+    y_global_test = np.concatenate(y_test_list, axis=0)
+
+    # Save global data loader for all tests
+    global_test_dataset = SimpleEEGDataset(x_global_test, y_global_test, is_train=False)
+    global_test_loader = DataLoader(global_test_dataset, batch_size=batch_size, shuffle=False)
+
+    loader_path = f"./saved_model_states/global_data_loader/test_loader_batch_{batch_size}.pth"
+    torch.save(global_test_loader, loader_path)
+
+    print(f"Global test data loader saved to: '{loader_path}'")
+
+    # Prepare the remaining data to be returned for training loop
+    remaining_subject_data = {subj: subject_data[subj] for subj in training_subjects}
+
+    return remaining_subject_data
 
 def load_bci3a_data(data_dir: str) -> tuple[np.ndarray, np.ndarray]:
     """
