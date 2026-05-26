@@ -347,16 +347,20 @@ def train_cross_individual(subject_data, model_class, device, epochs=30, batch_s
 def main():
     TEST_PATIENT_SET_LEN = 15
     DATA_PATH = "./preprocessed_data/Physionet"
+    DATA_PATH_BCI = "./preprocessed_data/BCI_IV_2a"
 
     # count_bci_samples("./preprocessed_data")
 
     MODEL_PATH = "./saved_model_states/temporal_transformer.pth"
     SEGMENT_TYPE = "3s"
     MODEL_PATH_EXTENDED = f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}.pth"
+    MODEL_PATH_BCI = f"./saved_model_states/temporal_transformer_bci2a.pth"
+
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {DEVICE}")
 
+    # subject_data_bci,_, _ = data.load_bci_separate_patient_data(DATA_PATH_BCI)
     subject_data,time_array, t0_idx = data.load_physionet_separate_patient_data(DATA_PATH, segment_type=SEGMENT_TYPE)
 
     training_subject_data = data.split_dataset_return_training(
@@ -365,11 +369,11 @@ def main():
         batch_size=16
     )
 
-    # best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
-    # torch.save(best_model, MODEL_PATH_EXTENDED)
-    # # # Train or Load -----------------------------------
-    best_model = torch.load(MODEL_PATH_EXTENDED, map_location=DEVICE)
-    best_model.eval()
+    best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
+    torch.save(best_model, MODEL_PATH_BCI)
+    # # Train or Load -----------------------------------
+    # best_model = torch.load(MODEL_PATH_BCI, map_location=DEVICE)
+    # best_model.eval()
 
     best_model.to(DEVICE)
     best_model.eval()

@@ -46,9 +46,12 @@ def extract_epochs(data_path: str, save_path_root: str) -> None:
 
 def __extract(raw_data: mne.io.BaseRaw) -> mne.Epochs:
 
-    events, event_ids = mne.events_from_annotations(raw_data)  # EXTRACT EVENTS
+    mappings = {'769': 0, '770': 1} # 769: Left, 770: Right
+    events, event_ids = mne.events_from_annotations(raw_data, event_id=mappings)  # EXTRACT EVENTS
+    # added mapping from 769, 770 to 0 and 1 (I hope this means left and right as described in the comment)
+
     logger.info(f"Event ids: {event_ids}")  # THIS IS IMPORTANT BECAUSE IT PROVIDES MAPPING TO EVENT IDS
-    selected_event_id = {"left_hand": 7, "right_hand": 8}  # BASED ON EVENT_IDS
+    selected_event_id = {"left_hand": 0, "right_hand": 1}  # BASED ON EVENT_IDS
 
     # PICK ONLY EEG
     picks = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False, exclude="bads")

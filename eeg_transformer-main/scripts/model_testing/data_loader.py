@@ -174,6 +174,12 @@ def load_bci_separate_patient_data(data_dir):
                 t0_idx = np.argmin(np.abs(time_array - 0.0))
 
             # This assumes that events (left, right) are mapped to 0 and 1
+            target_events = [0, 1]
+            mask = np.isin(epochs.events[:, -1], target_events)
+            if not np.any(mask):
+                continue  # Patient does not have event daya, omit patient
+
+            epochs = epochs[mask]
             x = epochs.get_data(copy=True)
             y = epochs.events[:, -1]  # Values are strictly 0 and 1 now
 
