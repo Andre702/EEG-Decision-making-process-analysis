@@ -89,3 +89,50 @@ class TemporalTransformer(nn.Module):
         x = self.transformer(x)
         x = x.mean(dim=0)
         return self.fc(x)
+
+
+class SpatialTransformer(nn.Module):
+    def __init__(self, input_size, d_model=128, nhead=8, num_classes=2, feature_method='raw', feature_extractor=None):
+        super(SpatialTransformer, self).__init__()
+        self.feature_method = feature_method
+
+        if feature_method in ['raw', 'cnn', 'stft']:
+            self.feature_extractor = FeatureExtractor(
+                model_class_name=self.__class__.__name__,
+                method=feature_method
+            ) if 'FeatureExtractor' in globals() else None
+        elif feature_method == 'csp':
+            self.feature_extractor = feature_extractor
+        else:
+            self.feature_extractor = None
+
+        # Maps the Time points into representation dimension
+        self.embedding = nn.Linear(input_size, d_model)
+
+        # Default was 128 so... just d_model lenght?
+        self.pos_encoder = PositionalEncoding(d_model)
+
+        # Transformer blocks
+        self.transformer = nn.Sequential(
+            TransformerBlock(d_model, nhead),
+            TransformerBlock(d_model, nhead),
+            TransformerBlock(d_model, nhead)
+        )
+        self.fc = nn.Linear(d_model, num_classes)
+
+    def forward(self, x):
+        # Initial input shape expected: (batch, 1, channels, time)
+        if self.feature_extractor is not None and self.feature_method != 'raw':
+            x = self.feature_extractor(x)
+
+        if self.feature_method == 'raw':
+            # Squeeze the '1' channel dimension to get (batch, channels, time)
+            # Then permute to put channels as: (channels, batch, time)
+            x = x.squeeze(1).permute(1, 0, 2)
+
+        x = self.embedding(x)  # linear projection across the Time axis
+        x = self.pos_encoder(x)  # add position IDs for the channels
+        x = self.transformer(x)  # calculate Multi-head attention across channels
+
+        x = x.mean(dim=0)  # Average all the channels to create a unified token
+        return self.fc(x)

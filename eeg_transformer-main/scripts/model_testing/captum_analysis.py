@@ -1,9 +1,11 @@
+import os
+
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 from captum.attr import IntegratedGradients
 
-def compute_captum_analysis(model, test_loader, device, max_samples=200, sfreq=160.0):
+def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=160.0):
     """
     Computes model attributions for given samples upt to the max_samples count using IntegratedGradients.
     Returns a dictionary containing results with appropriate tags for later analysis.
@@ -321,6 +323,101 @@ def extract_global_heatmap_data(analysis_results, mode='all'):
     # Return the average heatmap across all processed samples
     return accumulated_heatmap / valid_samples_count
 
+def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: int, fixed_scale: float,
+                                       dynamic_dir: str, fixed_dir: str):
+    """
+    Iterates through samples within the specified ID range. For each sample, generates two plots:
+    1. With a dynamic Y-axis scale (adjusted to the maximum reading of the sample).
+    2. With a fixed Y-axis scale (specified as fixed_scale).
+    Saves in the specified folders.
+    """
+    if not analysis_results:
+        print("Analysis results dictionary is empty or None.")
+        return
+
+    # Take global variables for analysis
+    all_samples_info = analysis_results['all_samples_info']
+    time_sec_array = analysis_results['time_sec_array']
+    tmin = analysis_results.get('tmin', time_sec_array[0])
+    tmax = analysis_results.get('tmax', time_sec_array[-1])
+    n_channels = analysis_results['n_channels']
+
+    os.makedirs(dynamic_dir, exist_ok=True)
+    os.makedirs(fixed_dir, exist_ok=True)
+
+    # Filter samples to specific range
+    samples_to_plot = [s for s in all_samples_info if start_id <= s['id'] <= end_id]
+
+    if not samples_to_plot:
+        print(f"No samples found in the range {start_id} - {end_id}.")
+        return
+
+    print("\n" + "=" * 60)
+    print(f"Generating Plots for IDs: {start_id} do {end_id}")
+    print("=" * 60)
+
+    def _create_and_save_plot(sample, current_scale, save_path, is_dynamic):
+        true_name = 'Right Hand (1)' if sample['true_class'] == 1 else 'Left Hand (0)'
+        pred_name = 'Right Hand (1)' if sample['pred_class'] == 1 else 'Left Hand (0)'
+        correct_text = "CORRECT" if sample['true_class'] == sample['pred_class'] else "INCORRECT!"
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4))
+
+        # --- PLOT 1: TIME CURVE ---
+        sig = sample['signed_imp']
+        ax1.plot(time_sec_array, sig, color='black', linewidth=1)
+        ax1.fill_between(time_sec_array, sig, 0, where=(sig >= 0), color='limegreen', alpha=0.6,
+                         label="Towards class 1")
+        ax1.fill_between(time_sec_array, sig, 0, where=(sig < 0), color='red', alpha=0.6, label="Towards class 0")
+
+        ax1.axhline(0, color='black', linestyle='--', linewidth=1)
+        ax1.axvline(0, color='blue', linestyle='-.', linewidth=1.5, label="Stimulus Onset (t=0)")
+
+        # USTAWIENIE SKALI Osi Y
+        ax1.set_ylim(-current_scale, current_scale)
+
+        scale_type = "DYNAMIC" if is_dynamic else f"FIXED ({fixed_scale})"
+        ax1.set_title(f"ID: {sample['id']} [{scale_type}] | True: {true_name} | Pred: {correct_text}")
+        ax1.set_xlabel("Time [s]")
+        ax1.set_ylabel("Directional gradient")
+        ax1.grid(True, alpha=0.3)
+        ax1.legend(loc='lower right', fontsize='small')
+
+        # --- PLOT 2: HEATMAP ---
+        im = ax2.imshow(sample['heatmap'], aspect='auto', cmap='hot', origin='lower',
+                        extent=[tmin, tmax, 0, n_channels],
+                        vmin=0.0, vmax=current_scale)
+
+        ax2.axvline(0, color='cyan', linestyle='-.', linewidth=1.5)
+        ax2.set_title("Heatmap (Absolute Gradients)")
+        ax2.set_xlabel("Time [s]")
+        ax2.set_ylabel("Electrode index")
+
+        cbar = plt.colorbar(im, ax=ax2)
+        cbar.set_label("Absolute Attention Magnitude")
+
+        plt.tight_layout()
+
+        # Zapis i czyszczenie pamięci
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)  # <- WAŻNE: Zamyka okno, zwalnia pamięć RAM!
+
+    for sample in samples_to_plot:
+        sample_id = sample['id']
+        sig_data = sample['signed_imp']
+
+        # Dynamic scale
+        max_val = float(np.max(np.abs(sig_data)))
+        dynamic_scale = max_val if max_val > 0 else 0.0001
+
+        print(f"Plotting Sample ID: {sample_id}. Set dynamic scale: {dynamic_scale:.6f}")
+
+        dyn_path = os.path.join(dynamic_dir, f"sample_{sample_id}_dynamic.png")
+        _create_and_save_plot(sample, current_scale=dynamic_scale, save_path=dyn_path, is_dynamic=True)
+
+        # Static scale
+        fix_path = os.path.join(fixed_dir, f"sample_{sample_id}_fixed.png")
+        _create_and_save_plot(sample, current_scale=fixed_scale, save_path=fix_path, is_dynamic=False)
 
 def plot_global_heatmap_and_bars(heatmap_data, analysis_results, title_suffix="All Attributions"):
     """

@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Dataset, TensorDataset
 from model_classes import TemporalTransformer
 import captum_analysis as captum
 import data_loader as data
+from scripts.model_testing.model_classes import SpatialTransformer
 
 
 def count_bci_samples(preprocessed_data_root: str):
@@ -204,7 +205,7 @@ def train_and_save_model_5fold(X_all, y_all, device, save_path="best_model.pth",
     return final_model, best_test_loader_state
 
 
-def train_cross_individual(subject_data, model_class, device, epochs=30, batch_size=32, lr=1e-3):
+def train_cross_individual(subject_data, model_class, device, epochs=30, batch_size=32, lr=1e-3, d_model=128, nhead=8):
     """
     Performs a 5-fold cross-individual validation.
     Tracks and returns the best performing model across all folds, along with its specific test_loader.
@@ -254,11 +255,23 @@ def train_cross_individual(subject_data, model_class, device, epochs=30, batch_s
 
         # Input size for the Model
         num_channels = X_train.shape[1] # For temporal transformer forward is applied as squeeze(1).permute(2, 0, 1), so the layer expects Channels as input size
+        num_time_points = X_train.shape[2]
+
+        model_name = model_class.__name__
+        if "Temporal" in model_name:
+            # Temporal: Time is the sequence, so the model needs to embed Channels (electrodes)
+            model_input_size = num_channels
+            print(f"[INFO] Configuring {model_name} -> input_size = {model_input_size} (Channels)")
+
+        elif "Spatial" in model_name:
+            # Spatial: Channels are the sequence, so the model needs to embed time points
+            model_input_size = num_time_points
+            print(f"[INFO] Configuring {model_name} -> input_size = {model_input_size} (Time points)")
 
         model = model_class(
-            input_size=num_channels,
-            d_model=64,
-            nhead=8,
+            input_size=model_input_size,
+            d_model=d_model,
+            nhead=nhead,
             num_classes=2,
             feature_method='raw'
         ).to(device)
@@ -344,6 +357,46 @@ def train_cross_individual(subject_data, model_class, device, epochs=30, batch_s
     return best_global_model, best_global_test_loader
 
 
+def get_model_disagreement_ids(results_a, results_b):
+    """
+    Finds and returns a list of sample IDs where the two models DISAGREE on the outcome
+    (i.e., one model predicted correctly and the other failed).
+
+    Args:
+        results_a: Dictionary returned by compute_captum_analysis for Model A.
+        results_b: Dictionary returned by compute_captum_analysis for Model B.
+
+    Returns:
+        list of int: Sample IDs of the disagreements.
+    """
+    if not results_a or not results_b:
+        print("[WARNING] Missing one or both analysis results.")
+        return []
+
+    # Create dictionaries indexed by sample ID for O(1) fast matching
+    dict_a = {s['id']: s for s in results_a['all_samples_info']}
+    dict_b = {s['id']: s for s in results_b['all_samples_info']}
+
+    disagreement_ids = []
+
+    for s_id, sample_a in dict_a.items():
+        if s_id in dict_b:
+            sample_b = dict_b[s_id]
+
+            is_correct_a = (sample_a['true_class'] == sample_a['pred_class'])
+            is_correct_b = (sample_b['true_class'] == sample_b['pred_class'])
+
+            # XOR condition: True if only exactly ONE of them is correct
+            if is_correct_a != is_correct_b:
+                disagreement_ids.append(s_id)
+
+    if not disagreement_ids:
+        print("[INFO] No disagreements found. Both models share identical successes and failures on these samples.")
+    else:
+        print(f"[INFO] Found {len(disagreement_ids)} sample(s) with conflicting outcomes.")
+
+    return disagreement_ids
+
 def main():
     TEST_PATIENT_SET_LEN = 15
     DATA_PATH = "./preprocessed_data/Physionet"
@@ -352,8 +405,10 @@ def main():
     # count_bci_samples("./preprocessed_data")
 
     MODEL_PATH = "./saved_model_states/temporal_transformer.pth"
-    SEGMENT_TYPE = "3s"
-    MODEL_PATH_EXTENDED = f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}.pth"
+    SEGMENT_TYPE = "6s"
+    MODEL_PATH_TEMPORAL = f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}.pth"
+    MODEL_PATH_SPATIAL = f"./saved_model_states/spatial_transformer_{SEGMENT_TYPE}.pth"
+
     MODEL_PATH_BCI = f"./saved_model_states/temporal_transformer_bci2a.pth"
 
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -369,35 +424,62 @@ def main():
         batch_size=16
     )
 
-    best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
-    torch.save(best_model, MODEL_PATH_BCI)
-    # # Train or Load -----------------------------------
-    # best_model = torch.load(MODEL_PATH_BCI, map_location=DEVICE)
-    # best_model.eval()
+    # ----------------------------------------------------------
+    # best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
+    # torch.save(best_model, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_4seconds.pth")
 
-    best_model.to(DEVICE)
+    # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
+    # torch.save(best_model_low_stats, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth")
+
+    # # # Train or Load -----------------------------------------
+    best_model = torch.load(f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_4seconds.pth", map_location=DEVICE)
     best_model.eval()
+    # best_model_low_stats = torch.load(f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth", map_location=DEVICE)
+    # best_model_low_stats.eval()
+    #
+    # best_model_low_stats.to(DEVICE)
+    # best_model_low_stats.eval()
+    #
+    # best_model.to(DEVICE)
+    # best_model.eval()
+    # ----------------------------------------------------------
 
     # Explainability test:
     test_loader = torch.load("saved_model_states/global_data_loader/test_loader_batch_16.pth")
-    results = captum.compute_captum_analysis(best_model, test_loader, DEVICE, sfreq=160.0)
+    results_high = captum.compute_captum_analysis(best_model, test_loader, DEVICE, sfreq=160.0)
+    # results_low = captum.compute_captum_analysis(best_model_low_stats, test_loader, DEVICE, sfreq=160.0)
 
-    captum.plot_top_biased(results, top_n=3)
-    captum.plot_top_conflicted(results, top_n=2)
-    captum.plot_dual_peaks(results, limit=4)
-    # captum.analyze_bulk(model, test_loader, device, max_samples=60)
+    # disputed_ids = get_model_disagreement_ids(results_high, results_low)
+
+    # for id in disputed_ids:
+
+
+    # captum.plot_top_biased(results, top_n=3)
+    # captum.plot_top_conflicted(results, top_n=2)
+    # captum.plot_dual_peaks(results, limit=4)
+
+    captum.generate_and_save_samples_in_range(
+        analysis_results=results_high,
+        start_id=4,
+        end_id=200,
+        fixed_scale=0.01,
+        dynamic_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/4s/Fixed",  # Ścieżka A
+        fixed_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/4s/Dynamic"  # Ścieżka B
+    )
 
     # Total absolute network attention
-    heatmap_all = captum.extract_global_heatmap_data(results, mode='all')
-    captum.plot_global_heatmap_and_bars(heatmap_all, results, title_suffix="Global / Total Impact")
+    heatmap_all = captum.extract_global_heatmap_data(results_high, mode='all')
+    captum.plot_global_heatmap_and_bars(heatmap_all, results_high, title_suffix="Global / Total Impact")
+    # heatmap_all = captum.extract_global_heatmap_data(results_low, mode='all')
+    # captum.plot_global_heatmap_and_bars(heatmap_all, results_low, title_suffix="Global / Total Impact")
 
     # Attention pointing TOWARDS the correct classification
-    heatmap_correct = captum.extract_global_heatmap_data(results, mode='correct_direction')
-    captum.plot_global_heatmap_and_bars(heatmap_correct, results, title_suffix="Correct Class Support")
+    heatmap_correct = captum.extract_global_heatmap_data(results_high, mode='correct_direction')
+    captum.plot_global_heatmap_and_bars(heatmap_correct, results_high, title_suffix="Correct Class Support")
 
     # Attention pointing AWAY from the correct classification (Conflict/Noise)
-    heatmap_wrong = captum.extract_global_heatmap_data(results, mode='incorrect_direction')
-    captum.plot_global_heatmap_and_bars(heatmap_wrong, results, title_suffix="Incorrect Class Influence (Noise/Error)")
+    heatmap_wrong = captum.extract_global_heatmap_data(results_high, mode='incorrect_direction')
+    captum.plot_global_heatmap_and_bars(heatmap_wrong, results_high, title_suffix="Incorrect Class Influence (Noise/Error)")
 
 
 if __name__ == "__main__":
