@@ -21,3 +21,5 @@ __pycache__/
 
 # Logs
 *.log
+/analysis_results/
+/saved_model_states/
