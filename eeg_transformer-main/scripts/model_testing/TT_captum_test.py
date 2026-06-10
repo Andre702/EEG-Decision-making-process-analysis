@@ -418,22 +418,24 @@ def main():
     # subject_data_bci,_, _ = data.load_bci_separate_patient_data(DATA_PATH_BCI)
     subject_data,time_array, t0_idx = data.load_physionet_separate_patient_data(DATA_PATH, segment_type=SEGMENT_TYPE)
 
+    allegedly_best_patients = ["S014", "S055", "S059", "S063", "S085"]
     training_subject_data = data.split_dataset_return_training(
         subject_data=subject_data,
         test_patient_count=TEST_PATIENT_SET_LEN,
-        batch_size=16
+        batch_size=16,
+        test_subjects_list=allegedly_best_patients
     )
 
     # ----------------------------------------------------------
-    # best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
-    # torch.save(best_model, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_4seconds.pth")
+    best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
+    torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best.pth")
 
     # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
     # torch.save(best_model_low_stats, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth")
 
     # # # Train or Load -----------------------------------------
-    best_model = torch.load(f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_4seconds.pth", map_location=DEVICE)
-    best_model.eval()
+    # best_model = torch.load(f"./saved_model_states/temporal_transformer_2seconds_test_best.pth", map_location=DEVICE)
+    # best_model.eval()
     # best_model_low_stats = torch.load(f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth", map_location=DEVICE)
     # best_model_low_stats.eval()
     #
@@ -447,6 +449,9 @@ def main():
     # Explainability test:
     test_loader = torch.load("saved_model_states/global_data_loader/test_loader_batch_16.pth")
     results_high = captum.compute_captum_analysis(best_model, test_loader, DEVICE, sfreq=160.0)
+
+    captum.save_analysis_results(results_high, "./analysis_results2s_analysis_end.pkl")
+
     # results_low = captum.compute_captum_analysis(best_model_low_stats, test_loader, DEVICE, sfreq=160.0)
 
     # disputed_ids = get_model_disagreement_ids(results_high, results_low)
@@ -458,14 +463,55 @@ def main():
     # captum.plot_top_conflicted(results, top_n=2)
     # captum.plot_dual_peaks(results, limit=4)
 
-    captum.generate_and_save_samples_in_range(
-        analysis_results=results_high,
-        start_id=4,
-        end_id=200,
-        fixed_scale=0.01,
-        dynamic_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/4s/Fixed",  # Ścieżka A
-        fixed_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/4s/Dynamic"  # Ścieżka B
-    )
+    # captum.generate_and_save_samples_in_range(
+    #     analysis_results=results_high,
+    #     start_id=1,
+    #     end_id=230,
+    #     fixed_scale=0.03,
+    #     dynamic_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/2sBack/Dynamic",  # Ścieżka A
+    #     fixed_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/2sBack/Fixed"  # Ścieżka B
+    # )
+
+    heatmap_s14 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S014", target_class=0)
+    captum.plot_global_heatmap_and_bars(heatmap_s14, results_high, title_suffix="Patient S014 - Left Hand Only")
+
+    heatmap_s14 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S014", target_class=1)
+    captum.plot_global_heatmap_and_bars(heatmap_s14, results_high, title_suffix="Patient S014 - Right Hand Only")
+
+    heatmap_s55 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S055", target_class=0)
+    captum.plot_global_heatmap_and_bars(heatmap_s55, results_high, title_suffix="Patient S055 - Left Hand Only")
+
+    heatmap_s55 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S055", target_class=1)
+    captum.plot_global_heatmap_and_bars(heatmap_s55, results_high, title_suffix="Patient S055 - Right Hand Only")
+
+    heatmap_s59 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S059", target_class=0)
+    captum.plot_global_heatmap_and_bars(heatmap_s59, results_high, title_suffix="Patient S059 - Left Hand Only")
+
+    heatmap_s59 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S059", target_class=1)
+    captum.plot_global_heatmap_and_bars(heatmap_s59, results_high, title_suffix="Patient S059 - Right Hand Only")
+
+    heatmap_s63 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S063", target_class=0)
+    captum.plot_global_heatmap_and_bars(heatmap_s63, results_high, title_suffix="Patient S063 - Left Hand Only")
+
+    heatmap_s63 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S063", target_class=1)
+    captum.plot_global_heatmap_and_bars(heatmap_s63, results_high, title_suffix="Patient S063 - Right Hand Only")
+
+    heatmap_s85 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S085", target_class=0)
+    captum.plot_global_heatmap_and_bars(heatmap_s85, results_high, title_suffix="Patient S085 - Left Hand Only")
+
+    heatmap_s85 = captum.extract_global_heatmap_data(
+        results_high, mode='all', subject_id="S085", target_class=1)
+    captum.plot_global_heatmap_and_bars(heatmap_s85, results_high, title_suffix="Patient S085 - Right Hand Only")
+
 
     # Total absolute network attention
     heatmap_all = captum.extract_global_heatmap_data(results_high, mode='all')

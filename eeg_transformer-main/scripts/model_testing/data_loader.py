@@ -7,12 +7,13 @@ from torch.utils.data import Dataset, DataLoader
 
 # Ładowanie danych =====================================================================================
 class SimpleEEGDataset(Dataset):
-    def __init__(self, X, y, is_train=False):
+    def __init__(self, x, y, subject_ids=None, is_train=False):
         self.is_train = is_train
-        self.X = torch.tensor(X, dtype=torch.float32)
+        self.X = torch.tensor(x, dtype=torch.float32)
         if self.X.ndim == 3:
             self.X = self.X.unsqueeze(1)
         self.y = torch.tensor(y, dtype=torch.long)
+        self.subject_ids = subject_ids
 
     def __len__(self):
         return len(self.X)
@@ -198,10 +199,12 @@ def load_bci_separate_patient_data(data_dir):
 
     return subject_data, time_array, t0_idx
 
-def split_dataset_return_training(subject_data, test_patient_count=15, batch_size=32):
+def split_dataset_return_training(subject_data, test_patient_count=15, batch_size=32, test_subjects_list=None):
     """
-    Randomly splits the dataset into a separate, isolated global test set
+    Splits the dataset into a separate, isolated global test set
     and a remaining set for model training/cross-validation.
+    If 'test_subjects_list' is provided, those exact subjects will be used for testing.
+    Otherwise, it randomly splits 'test_patient_count' subjects.
     Saves the global test dataloader.
     Returns remaining data for training.
     """
@@ -209,36 +212,58 @@ def split_dataset_return_training(subject_data, test_patient_count=15, batch_siz
     print("Splitting dataset into training and global test set")
     print("=" * 50)
 
-    # Gets all patient IDs, shuffles them (consistently - seed 702)
+    # Gets all patient IDs
     all_subjects = np.array(list(subject_data.keys()))
-    np.random.seed(702)
-    np.random.shuffle(all_subjects)
 
-    if len(all_subjects) <= test_patient_count:
-        raise ValueError(f"!Not enough patients to create the hold-out set of set size {test_patient_count}.")
+    if test_subjects_list is not None:
+        missing_subjects = [subj for subj in test_subjects_list if subj not in all_subjects]
+        if missing_subjects:
+            raise ValueError(
+                f"The following subjects from test list are missing in the dataset!: {missing_subjects}")
 
-    # Splitting into test and training
-    global_test_subjects = all_subjects[:test_patient_count]
-    training_subjects = all_subjects[test_patient_count:]
+        global_test_subjects = np.array(test_subjects_list)
+        # other test subjects are for training
+        training_subjects = np.array([subj for subj in all_subjects if subj not in global_test_subjects])
+
+        print(f"Using custom list of {len(global_test_subjects)} patients for the Global Test Set.")
+    else:
+        np.random.seed(702)
+        np.random.shuffle(all_subjects)
+
+        if len(all_subjects) <= test_patient_count:
+            raise ValueError(
+                f"Not enough patients to create the hold-out set of set size {test_patient_count}.")
+
+        global_test_subjects = all_subjects[:test_patient_count]
+        training_subjects = all_subjects[test_patient_count:]
+
+        print(f"Randomly selected {len(global_test_subjects)} patients for the Global Test Set.")
+    # -----------------------------------------
 
     print(f"Global test set: {len(global_test_subjects)} patients.")
     print(f"Returning remaining: {len(training_subjects)} patients.")
 
     # Extract data for the Global test set
     x_test_list, y_test_list = [], []
+    subject_id_test_list = []
     for subj in global_test_subjects:
         x, y = subject_data[subj]
         x_test_list.append(x)
         y_test_list.append(y)
 
+        num_epochs_for_subject = len(x)
+        subject_id_test_list.extend([subj] * num_epochs_for_subject)
+
     x_global_test = np.concatenate(x_test_list, axis=0)
     y_global_test = np.concatenate(y_test_list, axis=0)
 
     # Save global data loader for all tests
-    global_test_dataset = SimpleEEGDataset(x_global_test, y_global_test, is_train=False)
+    global_test_dataset = SimpleEEGDataset(x_global_test, y_global_test, is_train=False, subject_ids=subject_id_test_list)
     global_test_loader = DataLoader(global_test_dataset, batch_size=batch_size, shuffle=False)
 
     loader_path = f"./saved_model_states/global_data_loader/test_loader_batch_{batch_size}.pth"
+    os.makedirs(os.path.dirname(loader_path), exist_ok=True)
+
     torch.save(global_test_loader, loader_path)
 
     print(f"Global test data loader saved to: '{loader_path}'")

@@ -111,12 +111,12 @@ def create_subject_dir_structure_BCI_IV(path: str) -> None:
 
 def download_Physionet(path: str, num_patients: int = 109) -> None:
 
-    if os.path.exists(path):
-        logger.info(f"Dataset already downloaded in {path}")
-        return
+    # if os.path.exists(path):
+    #     logger.info(f"Dataset already downloaded in {path}")
+    #     return
 
     runs = [4, 8, 12]  # RUNS FOR MOTOR IMAGERY
-    subject_list: list[int] = np.arange(1, num_patients + 1, 1).tolist()  # PATIENTS TO DOWNLOAD
+    subject_list: list[int] = [55, 59, 63, 85] #np.arange(55, num_patients + 1, 1).tolist()  # PATIENTS TO DOWNLOAD
     custom_mne_dir = "MNE-eegbci-data"  # MNE IMPORTS DATA TO THIS DIRECTORY BY DEFAULT
 
     logger.info(f"Downloading Physionet data...")

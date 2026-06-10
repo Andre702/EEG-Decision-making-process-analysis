@@ -1,4 +1,5 @@
 import os
+import pickle
 
 import numpy as np
 import torch
@@ -20,7 +21,13 @@ def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=1
     total_correct = 0
     total_samples = 0
 
-    # before captum analysis, calculate accuracy on all the samples
+    correct_per_subject = {}
+    total_per_subject = {}
+    dataset = test_loader.dataset
+    subject_ids_list = getattr(dataset, 'subject_ids', None)
+    global_eval_idx = 0
+
+    # before captum analysis, calculate accuracy on all the samples...
     with torch.no_grad():
         for X_batch, y_batch in test_loader:
             X_batch = X_batch.to(device)
@@ -31,15 +38,47 @@ def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=1
 
             total_correct += (preds == y_batch).sum().item()
             total_samples += y_batch.size(0)
+            # ... as well as accuracy for each specific patient
+            for i in range(len(y_batch)):
+                if subject_ids_list is not None and global_eval_idx < len(subject_ids_list):
+                    subj_id = subject_ids_list[global_eval_idx]
+                else:
+                    subj_id = "Unknown"
+
+                # Checking single sample
+                is_correct = (preds[i] == y_batch[i]).item()
+
+                # Adding result to dict
+                if subj_id not in total_per_subject:
+                    total_per_subject[subj_id] = 0
+                    correct_per_subject[subj_id] = 0
+
+                total_per_subject[subj_id] += 1
+                if is_correct:
+                    correct_per_subject[subj_id] += 1
+
+                global_eval_idx += 1
 
     overall_accuracy = (total_correct / total_samples) * 100
     print(f"Accuracy: {overall_accuracy:.2f}% "
           f"({total_correct}/{total_samples} correct) <<<\n")
+
+    print("Accuracy per Subject:")
+    for subj_id in sorted(total_per_subject.keys(), key=str):  # Sorted by ID
+        total_s = total_per_subject[subj_id]
+        correct_s = correct_per_subject[subj_id]
+        acc_s = (correct_s / total_s) * 100
+        print(f"  -> Subject {subj_id}: {acc_s:.2f}% ({correct_s}/{total_s})")
+
     ig = IntegratedGradients(model)
 
     dual_peak_samples = []
     all_samples_info = []
     processed = 0
+
+    dataset = test_loader.dataset
+    subject_ids_list = getattr(dataset, 'subject_ids', None)
+    global_idx = 0
 
     print("Calculating gradient integrals...")
 
@@ -84,8 +123,14 @@ def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=1
                     'idx_2': midpoint + np.argmax(visual_curve_magnitude[midpoint:]),
                 })
 
+            if subject_ids_list is not None and global_idx < len(subject_ids_list):
+                current_patient_id = subject_ids_list[global_idx]
+            else:
+                current_patient_id = "Unknown"
+
             all_samples_info.append({
                 'id': processed + 1,
+                'subject_id': current_patient_id,
                 'true_class': target_class,
                 'pred_class': predicted_class,
                 'strength_abs': total_gradient_strength,
@@ -97,6 +142,7 @@ def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=1
             })
 
             processed += 1
+            global_idx += 1
 
         if processed >= max_samples:
             break
@@ -113,13 +159,49 @@ def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=1
     # Data package with tags
     return {
         'all_samples_info': all_samples_info,
-        'dual_peak_samples': dual_peak_samples,
+        # 'dual_peak_samples': dual_peak_samples,
         'time_sec_array': time_sec_array,
         'total_seconds': total_seconds,
         'n_channels': n_channels,
         'sfreq': sfreq
     }
 
+def save_analysis_results(analysis_results, filepath):
+    """
+    Saves the computed captum analysis dictionary to a binary file using Pickle.
+    """
+    if not analysis_results:
+        print("No data to save.")
+        return
+
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    try:
+        # 'wb' == Write Binary
+        # HIGHEST_PROTOCOL for best compression
+        with open(filepath, 'wb') as file:
+            pickle.dump(analysis_results, file, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"Analysis results saved to: {filepath}")
+    except Exception as e:
+        print(f"Error during saving analysis result: {e}")
+
+def load_analysis_results(filepath):
+    """
+    Loads a previously saved captum analysis dictionary from a Pickle file.
+    """
+    if not os.path.exists(filepath):
+        print(f"File {filepath} does not exist.")
+        return None
+
+    try:
+        # 'rb' == Read Binary
+        with open(filepath, 'rb') as f:
+            analysis_results = pickle.load(f)
+        print(f"Analysis results loaded from: {filepath}")
+        return analysis_results
+    except Exception as e:
+        print(f"Error during loading analysis result: {e}")
+        return None
 
 def plot_dual_peaks(analysis_results, limit=6):
     """
@@ -279,9 +361,11 @@ def plot_top_conflicted(analysis_results, top_n=3):
         plt.show()
 
 
-def extract_global_heatmap_data(analysis_results, mode='all'):
+def extract_global_heatmap_data(analysis_results, mode='all', subject_id=None, target_class=None):
     """
     Extracts and averages the (channels x time) attribution matrix across all samples.
+    If 'subject_id' is provided, it filters the samples and computes the heatmap
+    only for the specified patient.
 
     Modes:
     - 'all': Absolute sum of all attributions.
@@ -292,6 +376,21 @@ def extract_global_heatmap_data(analysis_results, mode='all'):
         return None
 
     all_samples = analysis_results['all_samples_info']
+
+    if subject_id is not None:
+        all_samples = [s for s in all_samples if s.get('subject_id') == subject_id]
+
+    if target_class is not None:
+        all_samples = [s for s in all_samples if s.get('true_class') == target_class]
+
+    if not all_samples:
+        print(f"No samples found for subject ID '{subject_id}' in the provided results.")
+        return None
+
+    print(f"Extracting heatmap data. Samples: {len(all_samples)}, "
+          f"Filters -> Subject: {subject_id if subject_id is not None else 'ALL'}, "
+          f"Class: {target_class if target_class is not None else 'ALL'}, Mode: {mode}")
+
     n_channels = analysis_results['n_channels']
     n_time = len(analysis_results['time_sec_array'])
 
@@ -357,13 +456,14 @@ def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: 
     print("=" * 60)
 
     def _create_and_save_plot(sample, current_scale, save_path, is_dynamic):
+
+        patient_info = sample.get('subject_id', 'Unknown Patient')
         true_name = 'Right Hand (1)' if sample['true_class'] == 1 else 'Left Hand (0)'
-        pred_name = 'Right Hand (1)' if sample['pred_class'] == 1 else 'Left Hand (0)'
         correct_text = "CORRECT" if sample['true_class'] == sample['pred_class'] else "INCORRECT!"
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 4.5))
 
-        # --- PLOT 1: TIME CURVE ---
+        # Plot time curve - changes in attention
         sig = sample['signed_imp']
         ax1.plot(time_sec_array, sig, color='black', linewidth=1)
         ax1.fill_between(time_sec_array, sig, 0, where=(sig >= 0), color='limegreen', alpha=0.6,
@@ -373,17 +473,17 @@ def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: 
         ax1.axhline(0, color='black', linestyle='--', linewidth=1)
         ax1.axvline(0, color='blue', linestyle='-.', linewidth=1.5, label="Stimulus Onset (t=0)")
 
-        # USTAWIENIE SKALI Osi Y
+        # Setting scale in Y axis
         ax1.set_ylim(-current_scale, current_scale)
 
         scale_type = "DYNAMIC" if is_dynamic else f"FIXED ({fixed_scale})"
-        ax1.set_title(f"ID: {sample['id']} [{scale_type}] | True: {true_name} | Pred: {correct_text}")
+        ax1.set_title(f"Patient: {patient_info} [{scale_type}] | True: {true_name} | Pred: {correct_text}")
         ax1.set_xlabel("Time [s]")
         ax1.set_ylabel("Directional gradient")
         ax1.grid(True, alpha=0.3)
         ax1.legend(loc='lower right', fontsize='small')
 
-        # --- PLOT 2: HEATMAP ---
+        # Plot heatmap
         im = ax2.imshow(sample['heatmap'], aspect='auto', cmap='hot', origin='lower',
                         extent=[tmin, tmax, 0, n_channels],
                         vmin=0.0, vmax=current_scale)
@@ -398,13 +498,21 @@ def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: 
 
         plt.tight_layout()
 
-        # Zapis i czyszczenie pamięci
+        # Save and clear memory
         plt.savefig(save_path, bbox_inches='tight')
-        plt.close(fig)  # <- WAŻNE: Zamyka okno, zwalnia pamięć RAM!
+        plt.close(fig)
 
     for sample in samples_to_plot:
         sample_id = sample['id']
         sig_data = sample['signed_imp']
+        patient_info = sample.get('subject_id', 'Unknown')
+
+        true_class_val = sample['true_class']
+        hand_folder = "Right_Hand_1" if true_class_val == 1 else "Left_Hand_0"
+        specific_dyn_dir = os.path.join(dynamic_dir, f"Patient_{patient_info}", hand_folder)
+        specific_fix_dir = os.path.join(fixed_dir, f"Patient_{patient_info}", hand_folder)
+        os.makedirs(specific_dyn_dir, exist_ok=True)
+        os.makedirs(specific_fix_dir, exist_ok=True)
 
         # Dynamic scale
         max_val = float(np.max(np.abs(sig_data)))
@@ -412,11 +520,10 @@ def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: 
 
         print(f"Plotting Sample ID: {sample_id}. Set dynamic scale: {dynamic_scale:.6f}")
 
-        dyn_path = os.path.join(dynamic_dir, f"sample_{sample_id}_dynamic.png")
+        dyn_path = os.path.join(specific_dyn_dir, f"sample_{sample_id}_dynamic.png")
         _create_and_save_plot(sample, current_scale=dynamic_scale, save_path=dyn_path, is_dynamic=True)
 
-        # Static scale
-        fix_path = os.path.join(fixed_dir, f"sample_{sample_id}_fixed.png")
+        fix_path = os.path.join(specific_fix_dir, f"sample_{sample_id}_fixed.png")
         _create_and_save_plot(sample, current_scale=fixed_scale, save_path=fix_path, is_dynamic=False)
 
 def plot_global_heatmap_and_bars(heatmap_data, analysis_results, title_suffix="All Attributions"):
