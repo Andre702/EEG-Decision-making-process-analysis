@@ -1,9 +1,10 @@
 import os
 import pickle
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
 from captum.attr import IntegratedGradients
 
 def compute_captum_analysis(model, test_loader, device, max_samples=640, sfreq=160.0):
@@ -526,7 +527,14 @@ def generate_and_save_samples_in_range(analysis_results, start_id: int, end_id: 
         fix_path = os.path.join(specific_fix_dir, f"sample_{sample_id}_fixed.png")
         _create_and_save_plot(sample, current_scale=fixed_scale, save_path=fix_path, is_dynamic=False)
 
-def plot_global_heatmap_and_bars(heatmap_data, analysis_results, title_suffix="All Attributions"):
+KEY_MOTOR_CHANNELS = [
+    "Fc3.", "Fc1.", "Fcz.", "Fc2.", "Fc4.", "C5..", "C3..", "C1..",
+    "Cz..", "C2..", "C4..", "C6..", "Cp3.", "Cp1.", "Cpz.", "Cp2.", "Cp4."
+]
+
+def plot_global_heatmap_and_bars(heatmap_data, analysis_results,
+                                 title_suffix="All Attributions", channel_names=None,
+                                 save_path=None, show_plot=True):
     """
     Plots an aggregated heatmap from all the samples as well as a horizontal bar chart
     representing total absolute attention per channel without time parameter.
@@ -553,6 +561,19 @@ def plot_global_heatmap_and_bars(heatmap_data, analysis_results, title_suffix="A
     ax_heat.set_ylabel("Channel (Electrode)")
     fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
 
+    if channel_names is None or len(channel_names) != n_channels:
+        channel_names = [f"Ch{i}" for i in range(n_channels)]
+
+    y_ticks_pos = []
+    y_ticks_labels = []
+    for idx, name in enumerate(channel_names):
+        if name in KEY_MOTOR_CHANNELS:
+            y_ticks_pos.append(idx + 0.5)
+            y_ticks_labels.append(name)
+
+    ax_heat.set_yticks(y_ticks_pos)
+    ax_heat.set_yticklabels(y_ticks_labels, fontsize=8, fontweight='bold')
+
     # Collapse the time dimension by summing attributions across each channel
     channel_importance = np.sum(heatmap_data, axis=1)
 
@@ -560,13 +581,144 @@ def plot_global_heatmap_and_bars(heatmap_data, analysis_results, title_suffix="A
 
     ax_bar.barh(y_pos, channel_importance, align='center', color='royalblue', edgecolor='black')
 
+    ax_bar.set_yticks(y_ticks_pos)
+    ax_bar.set_yticklabels(y_ticks_labels, fontsize=8, fontweight='bold')
+
+    max_val = np.max(channel_importance)
+    ax_bar.set_xlim(0, max_val * 1.15)
     ax_bar.set_ylim(0, n_channels)
-    # Hide y-ticks on the bar chart since they align with the heatmap
-    ax_bar.set_yticks([])
 
     ax_bar.set_title("Total Channel Impact")
     ax_bar.set_xlabel("Accumulated Gradient Strength")
     ax_bar.grid(axis='x', alpha=0.3)
 
+    threshold = np.mean(channel_importance)
+    padding = max_val * 0.02
+    for i, (val, name) in enumerate(zip(channel_importance, channel_names)):
+        if val >= threshold:
+            ax_bar.text(x=val + padding, y=y_pos[i], s=name,
+                        va='center', ha='left', fontsize=8, fontweight='bold', color='black')
+
     plt.tight_layout()
-    plt.show()
+
+    if save_path:
+        dir_name = os.path.dirname(save_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Plot saved in {save_path}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_difference_heatmap_and_bars(heatmap_diff, analysis_results,
+                                     title_suffix="Right vs Left Diff", channel_names=None,
+                                     save_path=None, show_plot=True):
+    """
+    Plots an aggregated heatmap representing difference between 2 classifications attention gradients
+    Positive values (Right Hand) are Blue.
+    Negative values (Left Hand) are Red.
+    The bar chart displays the absolute net difference colored appropriately.
+    """
+    if heatmap_diff is None or analysis_results is None:
+        return
+
+    total_seconds = analysis_results['total_seconds']
+    n_channels = analysis_results['n_channels']
+
+    print("\n" + "=" * 60)
+    print(f"Generating Difference Heatmap - {title_suffix}")
+    print("=" * 60)
+
+    fig, (ax_heat, ax_bar) = plt.subplots(1, 2, figsize=(15, 6), gridspec_kw={'width_ratios': [3, 1]})
+
+    # Finding absolute maximum for scale
+    max_abs_val = float(np.max(np.abs(heatmap_diff)))
+    if max_abs_val == 0:
+        max_abs_val = 0.001
+
+    # trying to make a good red -> black -> blue gradient
+    colors = ['red', 'black', 'deepskyblue']
+    custom_cmap = matplotlib.colors.LinearSegmentedColormap.from_list('red_black_blue', colors)
+
+    im = ax_heat.imshow(heatmap_diff, aspect='auto', cmap=custom_cmap, origin='lower',
+                        extent=[0, total_seconds, 0, n_channels],
+                        vmin=-max_abs_val, vmax=max_abs_val)
+
+    ax_heat.set_title(f"Difference Attention Heatmap ({title_suffix})")
+    ax_heat.set_xlabel("Time [s]")
+    ax_heat.set_ylabel("Channel (Electrode)")
+
+    if channel_names is None or len(channel_names) != n_channels:
+        channel_names = [f"Ch{i}" for i in range(n_channels)]
+
+    y_ticks_pos = []
+    y_ticks_labels = []
+    for idx, name in enumerate(channel_names):
+        if name in KEY_MOTOR_CHANNELS:
+            y_ticks_pos.append(idx + 0.5)
+            y_ticks_labels.append(name)
+
+    ax_heat.set_yticks(y_ticks_pos)
+    ax_heat.set_yticklabels(y_ticks_labels, fontsize=8, fontweight='bold')
+
+    cbar = fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04)
+    cbar.set_label("Net Difference (Red = Left/0, Blue = Right/1)")
+
+    # Plotting bars (also different colors if left or right hand accumulates more from this electrode)
+    channel_net_diff = np.sum(heatmap_diff, axis=1)
+    bar_lengths = np.abs(channel_net_diff)
+
+    y_pos = np.arange(n_channels) + 0.5
+    bar_colors = ['deepskyblue' if val > 0 else 'red' for val in channel_net_diff]
+
+    ax_bar.barh(y_pos, bar_lengths, align='center', color=bar_colors, edgecolor='black')
+
+    ax_bar.set_yticks(y_ticks_pos)
+    ax_bar.set_yticklabels(y_ticks_labels, fontsize=8, fontweight='bold')
+
+    max_bar_length = np.max(bar_lengths)
+    ax_bar.set_xlim(0, max_bar_length * 1.15)
+    ax_bar.set_ylim(0, n_channels)
+
+    ax_bar.set_title("Absolute Net Difference")
+    ax_bar.set_xlabel("Difference Magnitude")
+    ax_bar.grid(axis='x', alpha=0.3)
+
+    padding = max_bar_length * 0.02
+
+    for i, (val, name) in enumerate(zip(bar_lengths, channel_names)):
+        ax_bar.text(
+            x=val + padding,
+            y=y_pos[i],
+            s=name,
+            ha='left',
+            va='center',
+            fontsize=7,
+            color='black',
+            fontweight='bold'
+        )
+
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='deepskyblue', edgecolor='black', label='Hand R(1)'),
+        Patch(facecolor='red', edgecolor='black', label='Hand L(0)')
+    ]
+    ax_bar.legend(handles=legend_elements, loc='upper right', fontsize='small')
+
+    plt.tight_layout()
+
+    if save_path:
+        dir_name = os.path.dirname(save_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        print(f"Plot saved in {save_path}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)

@@ -427,15 +427,15 @@ def main():
     )
 
     # ----------------------------------------------------------
-    best_model, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 10, 16)
-    torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best.pth")
+    # best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
+    # torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth")
 
     # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
     # torch.save(best_model_low_stats, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth")
 
     # # # Train or Load -----------------------------------------
-    # best_model = torch.load(f"./saved_model_states/temporal_transformer_2seconds_test_best.pth", map_location=DEVICE)
-    # best_model.eval()
+    best_model = torch.load(f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth", map_location=DEVICE)
+    best_model.eval()
     # best_model_low_stats = torch.load(f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth", map_location=DEVICE)
     # best_model_low_stats.eval()
     #
@@ -450,7 +450,7 @@ def main():
     test_loader = torch.load("saved_model_states/global_data_loader/test_loader_batch_16.pth")
     results_high = captum.compute_captum_analysis(best_model, test_loader, DEVICE, sfreq=160.0)
 
-    captum.save_analysis_results(results_high, "./analysis_results2s_analysis_end.pkl")
+    # captum.save_analysis_results(results_high, "./analysis_results2s_analysis_end.pkl")
 
     # results_low = captum.compute_captum_analysis(best_model_low_stats, test_loader, DEVICE, sfreq=160.0)
 
@@ -463,6 +463,10 @@ def main():
     # captum.plot_top_conflicted(results, top_n=2)
     # captum.plot_dual_peaks(results, limit=4)
 
+    epochs = mne.read_epochs(f"./preprocessed_data/Physionet/S001/PA001-6s-epo.fif", preload=False)
+    ch_names = epochs.ch_names # List of electrode positions
+
+    # Generating plots for EVERY sample in 5 patient test set 225 samples total
     # captum.generate_and_save_samples_in_range(
     #     analysis_results=results_high,
     #     start_id=1,
@@ -472,60 +476,80 @@ def main():
     #     fixed_dir="C:/Moje Pliki/POLITECHNIKA/Magisterka/2sBack/Fixed"  # Ścieżka B
     # )
 
-    heatmap_s14 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S014", target_class=0)
-    captum.plot_global_heatmap_and_bars(heatmap_s14, results_high, title_suffix="Patient S014 - Left Hand Only")
+    patient_ids = ["S014", "S055", "S059", "S063", "S085"]
+    base_output_dir = r"C:\Moje Pliki\POLITECHNIKA\Magisterka\New HmAndBars with electrode names\last2s"
 
-    heatmap_s14 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S014", target_class=1)
-    captum.plot_global_heatmap_and_bars(heatmap_s14, results_high, title_suffix="Patient S014 - Right Hand Only")
+    for patient in patient_ids:
+        print(f"\nDrawing heatmaps for patient: {patient}")
 
-    heatmap_s55 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S055", target_class=0)
-    captum.plot_global_heatmap_and_bars(heatmap_s55, results_high, title_suffix="Patient S055 - Left Hand Only")
+        patient_dir = os.path.join(base_output_dir, patient)
+        os.makedirs(patient_dir, exist_ok=True)
 
-    heatmap_s55 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S055", target_class=1)
-    captum.plot_global_heatmap_and_bars(heatmap_s55, results_high, title_suffix="Patient S055 - Right Hand Only")
+        # File names:
+        left_hand_path = os.path.join(patient_dir, f"{patient} Global Left.png")
+        right_hand_path = os.path.join(patient_dir, f"{patient} Global Right.png")
+        diff_path = os.path.join(patient_dir, f"{patient} Global Difference.png")
 
-    heatmap_s59 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S059", target_class=0)
-    captum.plot_global_heatmap_and_bars(heatmap_s59, results_high, title_suffix="Patient S059 - Left Hand Only")
+        # Left Hand
+        heatmap_left = captum.extract_global_heatmap_data(
+            results_high, mode='all', subject_id=patient, target_class=0)
 
-    heatmap_s59 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S059", target_class=1)
-    captum.plot_global_heatmap_and_bars(heatmap_s59, results_high, title_suffix="Patient S059 - Right Hand Only")
+        captum.plot_global_heatmap_and_bars(
+            heatmap_left, results_high,
+            title_suffix=f"Patient {patient} - Left Hand Only",
+            channel_names=ch_names,
+            save_path=left_hand_path,
+            show_plot=False
+        )
 
-    heatmap_s63 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S063", target_class=0)
-    captum.plot_global_heatmap_and_bars(heatmap_s63, results_high, title_suffix="Patient S063 - Left Hand Only")
+        # Right Hand
+        heatmap_right = captum.extract_global_heatmap_data(
+            results_high, mode='all', subject_id=patient, target_class=1)
 
-    heatmap_s63 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S063", target_class=1)
-    captum.plot_global_heatmap_and_bars(heatmap_s63, results_high, title_suffix="Patient S063 - Right Hand Only")
+        captum.plot_global_heatmap_and_bars(
+            heatmap_right, results_high,
+            title_suffix=f"Patient {patient} - Right Hand Only",
+            channel_names=ch_names,
+            save_path=right_hand_path,
+            show_plot=False
+        )
 
-    heatmap_s85 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S085", target_class=0)
-    captum.plot_global_heatmap_and_bars(heatmap_s85, results_high, title_suffix="Patient S085 - Left Hand Only")
-
-    heatmap_s85 = captum.extract_global_heatmap_data(
-        results_high, mode='all', subject_id="S085", target_class=1)
-    captum.plot_global_heatmap_and_bars(heatmap_s85, results_high, title_suffix="Patient S085 - Right Hand Only")
-
+        # 3. Difference
+        captum.plot_difference_heatmap_and_bars(
+            heatmap_right - heatmap_left,
+            analysis_results=results_high,
+            title_suffix=f"Patient {patient} - Right Left Difference",
+            channel_names=ch_names,
+            save_path=diff_path,
+            show_plot=False
+        )
 
     # Total absolute network attention
     heatmap_all = captum.extract_global_heatmap_data(results_high, mode='all')
-    captum.plot_global_heatmap_and_bars(heatmap_all, results_high, title_suffix="Global / Total Impact")
-    # heatmap_all = captum.extract_global_heatmap_data(results_low, mode='all')
-    # captum.plot_global_heatmap_and_bars(heatmap_all, results_low, title_suffix="Global / Total Impact")
+    captum.plot_global_heatmap_and_bars(
+        heatmap_all, results_high,
+        title_suffix="Global / Total Impact",
+        channel_names=ch_names,
+        save_path=base_output_dir + r"\Global.png",
+        show_plot=False)
 
     # Attention pointing TOWARDS the correct classification
     heatmap_correct = captum.extract_global_heatmap_data(results_high, mode='correct_direction')
-    captum.plot_global_heatmap_and_bars(heatmap_correct, results_high, title_suffix="Correct Class Support")
+    captum.plot_global_heatmap_and_bars(
+        heatmap_correct, results_high,
+        title_suffix="Correct Class Support",
+        channel_names=ch_names,
+        save_path=base_output_dir + r"\Global Correct.png",
+        show_plot=False)
 
     # Attention pointing AWAY from the correct classification (Conflict/Noise)
     heatmap_wrong = captum.extract_global_heatmap_data(results_high, mode='incorrect_direction')
-    captum.plot_global_heatmap_and_bars(heatmap_wrong, results_high, title_suffix="Incorrect Class Influence (Noise/Error)")
+    captum.plot_global_heatmap_and_bars(
+        heatmap_wrong, results_high,
+        title_suffix="Incorrect Class Influence (Noise/Error)",
+        channel_names=ch_names,
+        save_path=base_output_dir + r"\Global Incorrect.png",
+        show_plot=False)
 
 
 if __name__ == "__main__":
