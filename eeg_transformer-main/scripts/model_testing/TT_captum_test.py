@@ -6,6 +6,7 @@ import mne
 import copy
 from sklearn.model_selection import KFold, StratifiedKFold
 from torch.utils.data import DataLoader, Dataset, TensorDataset
+import matplotlib.pyplot as plt
 
 from model_classes import TemporalTransformer
 import captum_analysis as captum
@@ -397,7 +398,113 @@ def get_model_disagreement_ids(results_a, results_b):
 
     return disagreement_ids
 
+def visualise_raw_recordings():
+    raw_file_path = "./data/Physionet/S001/S001R04.edf"
+
+    # Loading Raw EDF
+    raw = mne.io.read_raw_edf(raw_file_path, preload=True, verbose=False)
+
+    # Extract Text Annotations raw.annotations.description should contain strings: 'T0', 'T1', 'T2'
+    raw_text_annotations = raw.annotations.description
+    t1_count = np.sum(raw_text_annotations == 'T1')
+    t2_count = np.sum(raw_text_annotations == 'T2')
+
+    print(f"\n[STEP 1] Direct EDF Text Annotation Analysis:")
+    print(f"-> Found '{t1_count}' occurrences of text 'T1' (Left Hand).")
+    print(f"-> Found '{t2_count}' occurrences of text 'T2' (Right Hand).")
+
+    events, event_ids = mne.events_from_annotations(raw, verbose=False)
+
+    # Testing mapping used in preprocessing:
+    selected_event_id = {"left_hand": 2, "right_hand": 3}
+    epochs = mne.Epochs(raw, events, event_id=selected_event_id, tmin=0, tmax=4, baseline=None, preload=True,
+                        verbose=False)
+
+    print(f"MNE Extracted {len(epochs)} target epochs.")
+    print(f"-> Does {len(epochs)} equal the sum of T1({t1_count}) and T2({t2_count})? {'YES' if len(epochs) == (t1_count + t2_count) else 'NO'}")
+
+    # Fetch Sampling Frequency
+    sfreq = raw.info['sfreq']
+    print(f"Sampling frequency: {sfreq} Hz")
+
+    # Select specific motor cortex channels for visual clarity
+    target_channels = ['F8..', 'F6..', 'F7..']
+    picks = mne.pick_channels(raw.info['ch_names'], include=target_channels)
+
+    # Get exactly the first 3 consecutive events from the dataset
+    event_1 = raw.annotations[0]
+    event_2 = raw.annotations[1]
+    event_3 = raw.annotations[2]
+
+    print(f"\nExtracted First 3 Events from EDF File:")
+    print(f"Event 1: {event_1['description']} | Onset: {event_1['onset']}s | Duration: {event_1['duration']}s")
+    print(f"Event 2: {event_2['description']} | Onset: {event_2['onset']}s | Duration: {event_2['duration']}s")
+    print(f"Event 3: {event_3['description']} | Onset: {event_3['onset']}s | Duration: {event_3['duration']}s")
+
+    def get_signal_slice(onset, duration):
+        """Slices raw data based on exact index to prevent floating point rounding issues."""
+        start_idx = int(round(onset * sfreq))
+        stop_idx = start_idx + int(round(duration * sfreq))
+        # raw.get_data returns shape: (n_channels, n_times)
+        data, _ = raw[picks, start_idx:stop_idx]
+        return data * 1e6  # Convert Volts to microVolts (uV)
+
+    # Reconstructing signal from events
+    chunk_1 = get_signal_slice(event_1['onset'], event_1['duration'])
+    chunk_2 = get_signal_slice(event_2['onset'], event_2['duration'])
+    chunk_3 = get_signal_slice(event_3['onset'], event_3['duration'])
+
+    concatenated_signal = np.concatenate([chunk_1, chunk_2, chunk_3], axis=1)
+
+    # Extract the continuous raw signal (The same length as the concatinated one)
+    total_samples = concatenated_signal.shape[1]
+    start_index = int(round(event_1['onset'] * sfreq)) #event_1['onset'] is the length of first event
+    end_index = start_index + total_samples
+
+    continuous_signal, _ = raw[picks, start_index:end_index]
+    continuous_signal = continuous_signal * 1e6  # Convert to uV
+
+    time_axis = np.arange(total_samples) / sfreq
+
+    # Plots:
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(15, 10), sharex=True, sharey=True)
+    channel_colors = ['blue', 'green', 'red']
+
+    # Plot 1: Continuous Signal
+    for i, (ch_name, color) in enumerate(zip(target_channels, channel_colors)):
+        ax1.plot(time_axis, continuous_signal[i] + i * 50, label=ch_name, color=color, linewidth=1.5)
+
+    ax1.set_title("True Continuous Raw Signal (First ~12 seconds)", fontsize=14, fontweight='bold')
+    ax1.set_ylabel("Amplitude ($\mu$V)")
+    ax1.legend(loc='upper right')
+
+    # Add vertical lines to show the cuts
+    t_transition_1 = event_1['duration']
+    t_transition_2 = event_1['duration'] + event_2['duration']
+    ax1.axvline(x=t_transition_1, color='black', linestyle='--', alpha=0.5)
+    ax1.axvline(x=t_transition_2, color='black', linestyle='--', alpha=0.5)
+
+    # Plot 2: Concatenated Signal
+    for i, (ch_name, color) in enumerate(zip(target_channels, channel_colors)):
+        ax2.plot(time_axis, concatenated_signal[i] + i * 50, label=ch_name, color=color, linewidth=1.2)
+
+    ax2.set_title(
+        f"Concatenated Signal Created from first 3 events ({event_1['description']} + {event_2['description']} + {event_3['description']} chunks)",
+        fontsize=14, fontweight='bold')
+    ax2.set_xlabel("Time (seconds)", fontsize=12)
+    ax2.set_ylabel("Amplitude ($\mu$V)")
+    ax2.legend(loc='upper right')
+
+    ax2.axvline(x=t_transition_1, color='black', linestyle='--', alpha=0.5)
+    ax2.axvline(x=t_transition_2, color='black', linestyle='--', alpha=0.5)
+
+    plt.tight_layout()
+    plt.show()
+
 def main():
+    # visualise_raw_recordings()
+    # return
+
     TEST_PATIENT_SET_LEN = 15
     DATA_PATH = "./preprocessed_data/Physionet"
     DATA_PATH_BCI = "./preprocessed_data/BCI_IV_2a"
@@ -427,7 +534,7 @@ def main():
     )
 
     # ----------------------------------------------------------
-    # best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
+    best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
     # torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth")
 
     # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
