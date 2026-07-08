@@ -505,24 +505,31 @@ def main():
     # visualise_raw_recordings()
     # return
 
-    TEST_PATIENT_SET_LEN = 15
+    # test_file = "./data/Giga/s01.edf"
+    #
+    # raw = mne.io.read_raw_edf(test_file, preload=False)
+    # print("--- KANAŁY ---")
+    # print(raw.ch_names[:10], "... Razem kanałów:", len(raw.ch_names))
+    #
+    # print("\n--- ANOTACJE ---")
+    # print(raw.annotations)
+    #
+    # try:
+    #     events, event_id = mne.events_from_annotations(raw)
+    #     print("\n--- WYKRYTE ZDARZENIA I ICH ID ---")
+    #     print(event_id)
+    # except Exception as e:
+    #     print("Nie udało się odczytać zdarzeń z anotacji:", e)
+    #
+    # return
+
+    TEST_PATIENT_SET_LEN = 8
     DATA_PATH = "./preprocessed_data/Physionet"
-    DATA_PATH_BCI = "./preprocessed_data/BCI_IV_2a"
-
-    # count_bci_samples("./preprocessed_data")
-
-    MODEL_PATH = "./saved_model_states/temporal_transformer.pth"
     SEGMENT_TYPE = "6s"
-    MODEL_PATH_TEMPORAL = f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}.pth"
-    MODEL_PATH_SPATIAL = f"./saved_model_states/spatial_transformer_{SEGMENT_TYPE}.pth"
-
-    MODEL_PATH_BCI = f"./saved_model_states/temporal_transformer_bci2a.pth"
-
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {DEVICE}")
 
-    # subject_data_bci,_, _ = data.load_bci_separate_patient_data(DATA_PATH_BCI)
     subject_data,time_array, t0_idx = data.load_physionet_separate_patient_data(DATA_PATH, segment_type=SEGMENT_TYPE)
 
     allegedly_best_patients = ["S014", "S055", "S059", "S063", "S085"]
@@ -530,12 +537,12 @@ def main():
         subject_data=subject_data,
         test_patient_count=TEST_PATIENT_SET_LEN,
         batch_size=16,
-        test_subjects_list=allegedly_best_patients
+        # test_subjects_list=allegedly_best_patients
     )
 
     # ----------------------------------------------------------
     best_model, _ = train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
-    # torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth")
+    torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth")
 
     # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
     # torch.save(best_model_low_stats, f"./saved_model_states/temporal_transformer_{SEGMENT_TYPE}_low_stats.pth")

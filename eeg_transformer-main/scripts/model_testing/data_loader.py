@@ -81,7 +81,7 @@ def load_physionet_data(data_dir, segment_type="6s"): #Bazowo tylko 6-sekundowe 
     return np.concatenate(all_x), np.concatenate(all_y)
 
 
-def load_physionet_separate_patient_data(data_dir, segment_type="6s"):
+def load_physionet_separate_patient_data(data_dir, segment_type="4s"):
     """
     Loads EEG samples from Physionet data assigning it to the separate keys (patient names)
     """
@@ -143,6 +143,72 @@ def load_physionet_separate_patient_data(data_dir, segment_type="6s"):
 
     return subject_data, time_array, t0_idx
 
+def load_gigadb_separate_patient_data(data_dir, segment_type="4s"):
+    """
+    Loads EEG samples from GigaDB data assigning it to the separate keys (patient names)
+    Dynamically resolves event mapping from MNE .fif metadata
+    """
+    subject_data = {}
+    subjects = sorted(os.listdir(data_dir))
+    print(f"Loading GigaDB preprocessed data from {data_dir} (variant: {segment_type})...")
+
+    time_array = None
+    t0_idx = None
+
+    for subj_folder in subjects:
+        subj_path = os.path.join(data_dir, subj_folder)
+        if not os.path.isdir(subj_path):
+            continue
+
+        # Look for files based on naming convention (PA001-4s-epo.fif)
+        expected_filename = f"PA{subj_folder[1:4]}-{segment_type}-epo.fif"
+        file_path = os.path.join(subj_path, expected_filename)
+
+        if not os.path.exists(file_path):
+            continue
+
+        try:
+            epochs = mne.read_epochs(file_path, preload=True, verbose=False)
+
+            if time_array is None:
+                time_array = epochs.times
+                t0_idx = np.argmin(np.abs(time_array - 0.0))
+
+            # GigaDB set has event ids saved in metadata, so we take the index from there
+            left_code = epochs.event_id.get("left_hand")
+            right_code = epochs.event_id.get("right_hand")
+
+            if left_code is None or right_code is None:
+                left_code, right_code = 1, 2
+
+            target_events = [left_code, right_code]
+            mask = np.isin(epochs.events[:, -1], target_events)
+
+            if not np.any(mask):
+                continue  # Patient did not have class markings for standard IDs
+
+            epochs = epochs[mask]
+            x = epochs.get_data(copy=True)
+            y = epochs.events[:, -1]
+
+            # Map events to 0 and 1
+            y = np.where(y == left_code, 0, 1)
+
+            # Save to dictionary
+            subject_data[subj_folder] = (x, y)
+
+        except Exception as e:
+            print(f"Skipping patient {subj_folder}. Error: {e}")
+
+    if not subject_data:
+        raise ValueError(f"No files for {segment_type} in {data_dir}")
+
+    print(f"Loaded {len(subject_data)} patients data from GigaDB.")
+    if time_array is not None:
+        print(f"Sample time starts at {time_array[0]:.2f}s, ends at {time_array[-1]:.2f}s.")
+        print(f"Test beginning (t=0) is at index: {t0_idx}")
+
+    return subject_data, time_array, t0_idx
 
 def load_bci_separate_patient_data(data_dir):
     """

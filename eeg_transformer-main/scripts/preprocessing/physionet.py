@@ -61,15 +61,15 @@ def extract_epochs(data_path: str, save_path_root: str) -> None:
         raw_run_12 = mne.io.read_raw_edf(data_file_run_12, preload=True)
 
         raws = mne.concatenate_raws([raw_run_4, raw_run_8, raw_run_12])
-        epochs_3s, epochs_6s = __extract(raws)
+        epochs_3s, epochs_4s = __extract(raws)
 
         os.makedirs(os.path.join(save_directory, subject))
 
         epochs_3s_filename = os.path.join(save_directory, subject, f"PA{subject[1:4]}-3s-epo.fif")
-        epochs_6s_filename = os.path.join(save_directory, subject, f"PA{subject[1:4]}-6s-epo.fif")
+        epochs_4s_filename = os.path.join(save_directory, subject, f"PA{subject[1:4]}-4s-epo.fif")
 
         epochs_3s.save(epochs_3s_filename)
-        epochs_6s.save(epochs_6s_filename)
+        epochs_4s.save(epochs_4s_filename)
 
         logger.info(f"Preprocessed data for subject {subject[1:4]} saved")
 
@@ -82,8 +82,11 @@ def __extract(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
 
     # PICK ONLY EEG
     picks = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False, exclude="bads")
-    tmin_3s, tmax_3s = 2.0, 5.0
-    tmin_6s, tmax_6s = 0, 4
+    tmin_2s, tmax_2s = 0, 2
+    tmin_3s, tmax_3s = 0, 3
+    tmin_4s, tmax_4s = 0, 4
+    tmin_last3s, tmax_last3s = 1, 4
+    tmin_last2s, tmax_last2s = 2, 4
 
     epochs_3s = mne.Epochs(
         raw_data,
@@ -96,22 +99,22 @@ def __extract(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
         preload=True,
     )
 
-    epochs_6s = mne.Epochs(
+    epochs_4s = mne.Epochs(
         raw_data,
         events,
         event_id=selected_event_id,
-        tmin=tmin_6s,
-        tmax=tmax_6s,
+        tmin=tmin_4s,
+        tmax=tmax_4s,
         picks=picks,
         baseline=None,
         preload=True,
     )
 
     epochs_normalised_3s = __normalise(epochs_3s)
-    epochs_normalised_6s = __normalise(epochs_6s)
+    epochs_normalised_4s = __normalise(epochs_4s)
 
-    logger.info(f"Extracted {len(epochs_normalised_3s)} epochs (3s) and {len(epochs_normalised_6s)} epochs (6s)")
-    return epochs_normalised_3s, epochs_normalised_6s
+    logger.info(f"Extracted {len(epochs_normalised_3s)} epochs (3s) and {len(epochs_normalised_4s)} epochs (6s)")
+    return epochs_normalised_3s, epochs_normalised_4s
 
 
 def __normalise(epochs: mne.Epochs) -> mne.epochs:
