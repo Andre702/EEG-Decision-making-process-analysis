@@ -3,6 +3,7 @@ import scripts.preprocessing.bci2a as bci2a
 import scripts.preprocessing.bci2b as bci2b
 import scripts.preprocessing.bci3a as bci3a
 import scripts.preprocessing.physionet as physionet
+import scripts.preprocessing.gigadb as giga
 from eeg_logger import logger
 from download import DATA_BASE_DIR
 
@@ -24,6 +25,8 @@ def main() -> None:
             bci2b.extract_epochs(data_path=f"{DATA_BASE_DIR}/BCI_IV_2b", save_path_root=PREPROCESSED_DATA_BASE_DIR)
         case "physionet":
             physionet.extract_epochs(data_path=f"{DATA_BASE_DIR}/Physionet", save_path_root=PREPROCESSED_DATA_BASE_DIR)
+        case "giga":
+            giga.extract_epochs(data_path=f"{DATA_BASE_DIR}/Giga", save_path_root=PREPROCESSED_DATA_BASE_DIR)
         case _:
             logger.warning("No dataset to preprocess provided")
 

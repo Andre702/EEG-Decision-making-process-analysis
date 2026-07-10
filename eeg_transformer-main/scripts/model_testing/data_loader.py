@@ -26,6 +26,34 @@ class SimpleEEGDataset(Dataset):
         x = (x - mean) / torch.clamp(std, min=1e-5)
         return x, self.y[idx]
 
+class LazySubjectDataset(Dataset):
+    """
+    PyTorch Dataset pointing directly to the loaded subject_data dictionary.
+    Eliminates the need to call np.concatenate and duplicate gigabytes of RAM.
+    """
+    def __init__(self, subject_data, subjects_list):
+        self.subject_data = subject_data
+        self.subjects_list = subjects_list
+
+        # Tworzymy mapę indeksów: (nazwa_pacjenta, numer_epoki_u_tego_pacjenta)
+        self.index_map = []
+        for subj in self.subjects_list:
+            num_epochs = len(self.subject_data[subj][0])
+            for epoch_idx in range(num_epochs):
+                self.index_map.append((subj, epoch_idx))
+
+    def __len__(self):
+        return len(self.index_map)
+
+    def __getitem__(self, idx):
+        subj, epoch_idx = self.index_map[idx]
+
+        # Pobieramy dane i wymuszamy konwersję do float32 (oszczędność pamięci)
+        x = self.subject_data[subj][0][epoch_idx].astype(np.float32)
+        y = self.subject_data[subj][1][epoch_idx]
+
+        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.long)
+
 def load_physionet_data(data_dir, segment_type="6s"): #Bazowo tylko 6-sekundowe próbki
     all_x, all_y = [], []
     subjects = sorted(os.listdir(data_dir))

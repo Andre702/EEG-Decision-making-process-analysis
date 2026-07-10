@@ -2,7 +2,7 @@ import os, mne, shutil
 import numpy as np
 from eeg_logger import logger
 
-def extract_epochs_giga(data_path: str, save_path_root: str, resample_to: int = None) -> None:
+def extract_epochs(data_path: str, save_path_root: str, resample_to: int = None) -> None:
     if not os.path.exists(data_path):
         logger.error(f"No data to preprocess in {data_path}")
         return
@@ -34,21 +34,21 @@ def extract_epochs_giga(data_path: str, save_path_root: str, resample_to: int = 
         else:
             logger.info(f"Keeping native sampling rate: {raw.info['sfreq']} Hz")
 
-        epochs_3s, epochs_4s = __extract_giga(raw)
+        epochs_short, epochs_full = __extract_giga(raw)
 
         subject_save_dir = os.path.join(save_directory, standardized_subject)
         os.makedirs(subject_save_dir, exist_ok=True)
 
-        epochs_3s_filename = os.path.join(subject_save_dir, f"PA{standardized_subject[1:4]}-3s-epo.fif")
-        epochs_4s_filename = os.path.join(subject_save_dir, f"PA{standardized_subject[1:4]}-4s-epo.fif")
+        epochs_short_filename = os.path.join(subject_save_dir, f"PA{standardized_subject[1:4]}-3s-epo.fif")
+        epochs_long_filename = os.path.join(subject_save_dir, f"PA{standardized_subject[1:4]}-4s-epo.fif")
 
-        epochs_3s.save(epochs_3s_filename, overwrite=True)
-        epochs_4s.save(epochs_4s_filename, overwrite=True)
+        epochs_short.save(epochs_short_filename, overwrite=True)
+        epochs_full.save(epochs_long_filename, overwrite=True)
 
         logger.info(f"Preprocessed data for subject {standardized_subject} saved")
 
 
-def __extract_giga(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
+def __extract_giga_old(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
     events, event_ids = mne.events_from_annotations(raw_data)
     logger.info(f"Original event ids: {event_ids}")
 
@@ -106,6 +106,83 @@ def __extract_giga(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
 
     logger.info(f"Extracted {len(epochs_normalised_3s)} epochs (3s) and {len(epochs_normalised_4s)} epochs (4s)")
     return epochs_normalised_3s, epochs_normalised_4s
+
+
+def __extract_giga(raw_data: mne.io.BaseRaw) -> tuple[mne.Epochs, mne.Epochs]:
+    all_channels = raw_data.info['ch_names']
+
+    # Usuwamy ew. kanały nazywające się EMG lub bierzemy tylko "czyste" kanały głowy
+    print(f"num of channels: {len(all_channels)}")
+    emg_channels = [
+        ch for ch in all_channels
+        if 'emg' in ch.lower() or 'extensor' in ch.lower() or 'flexor' in ch.lower()
+    ]
+    if emg_channels:
+        print(f"EMG electrodes (measuring muscle signals on arms) were detected in the set: {emg_channels}. Dropping these IDs")
+        raw_data.drop_channels(emg_channels)
+
+    if len(raw_data.info['ch_names'])!= 64:
+        print(f"Number of channels is different than 64! Len: {len(raw_data)}")
+
+    events, event_ids = mne.events_from_annotations(raw_data)
+    print(f"Found following event markers: {event_ids}")
+
+    # --- Selecting data from motor imagery events:
+    selected_event_id = {}
+
+    # Trying to select by name
+    mi_left_keys = [k for k in event_ids.keys() if 'left' in k.lower()]
+    mi_right_keys = [k for k in event_ids.keys() if 'right' in k.lower()]
+
+    if mi_left_keys and mi_right_keys:
+        selected_event_id["imagery_left_hand"] = event_ids[mi_left_keys[0]]
+        selected_event_id["imagery_right_hand"] = event_ids[mi_right_keys[0]]
+    else:
+        # Events are named differently
+        if '1' in event_ids and '2' in event_ids:
+            # This can be wrong!
+            selected_event_id["imagery_left_hand"] = event_ids['1']
+            selected_event_id["imagery_right_hand"] = event_ids['2']
+        else:
+            raise ValueError(f"CRITICAL ERROR: Unknown event keys in EDF file: {event_ids.keys()}")
+
+    print(f"Using event IDs: {selected_event_id}")
+
+    picks = mne.pick_types(raw_data.info, meg=False, eeg=True, eog=False, stim=False, exclude="bads")
+
+    tmin_short, tmax_short = 1, 3
+    tmin_full, tmax_full = 0, 3
+
+    epochs_short = mne.Epochs(
+        raw_data,
+        events,
+        event_id=selected_event_id,
+        tmin=tmin_short,
+        tmax=tmax_short,
+        picks=picks,
+        baseline=None,  # W analizach dla Transformera najczęściej używamy własnej normalizacji! To dobry krok.
+        preload=True,
+    )
+
+    epochs_full = mne.Epochs(
+        raw_data,
+        events,
+        event_id=selected_event_id,
+        tmin=tmin_full,
+        tmax=tmax_full,
+        picks=picks,
+        baseline=None,
+        preload=True,
+    )
+
+    # Normalizing samples with (z-score + noise)
+    epochs_normalised_2s = __normalise(epochs_short)
+    epochs_normalised_3s = __normalise(epochs_full)
+
+    print(f"epochs_normalised_2s: {len(epochs_normalised_2s)}")
+    print(f"epochs_normalised_3s: {len(epochs_normalised_3s)}")
+
+    return epochs_normalised_2s, epochs_normalised_3s
 
 def __normalise(epochs: mne.Epochs) -> mne.epochs:
     """
