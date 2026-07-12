@@ -26,7 +26,7 @@ def main() -> None:
         case "physionet":
             physionet.extract_epochs(data_path=f"{DATA_BASE_DIR}/Physionet", save_path_root=PREPROCESSED_DATA_BASE_DIR)
         case "giga":
-            giga.extract_epochs(data_path=f"{DATA_BASE_DIR}/Giga", save_path_root=PREPROCESSED_DATA_BASE_DIR)
+            giga.extract_epochs(data_path=f"{DATA_BASE_DIR}/GigaNew", save_path_root=PREPROCESSED_DATA_BASE_DIR)
         case _:
             logger.warning("No dataset to preprocess provided")
 

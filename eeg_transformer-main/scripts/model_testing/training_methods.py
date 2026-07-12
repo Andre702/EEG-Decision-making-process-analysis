@@ -9,6 +9,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from model_classes import TemporalTransformer
 import data_loader as data
@@ -509,7 +510,7 @@ class EEGLightningWrapper(pl.LightningModule):
         return optimizer
 
 
-def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_size=32, lr=1e-3, d_model=128, nhead=8, dataset_name="GigaDB"):
+def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_size=32, lr=1e-4, d_model=128, nhead=8, dataset_name="GigaDB"):
     """
     Performs a 5-fold cross-individual validation using torch lightning libraries.
     Tracks and returns the best performing model across all folds, along with its specific test_loader.
@@ -539,13 +540,23 @@ def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_siz
         test_subjects = all_subjects[test_idx]
 
         # Inicjalizacja Dataloaderów (Zakładam istnienie Twojej klasy LazySubjectDataset)
+        # Multithreading for google colab:
+        # train_loader = DataLoader(
+        #     data.LazySubjectDataset(subject_data, train_subjects),
+        #     batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True, persistent_workers=True
+        # )
+        # test_loader = DataLoader(
+        #     data.LazySubjectDataset(subject_data, test_subjects),
+        #     batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True, persistent_workers=True
+        # )
+
         train_loader = DataLoader(
             data.LazySubjectDataset(subject_data, train_subjects),
-            batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True
+            batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True
         )
         test_loader = DataLoader(
             data.LazySubjectDataset(subject_data, test_subjects),
-            batch_size=batch_size, shuffle=False, num_workers=2, pin_memory=True
+            batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True
         )
 
         fold_dir = os.path.join(checkpoints_base_dir, f"fold_{fold_num}")
@@ -563,6 +574,7 @@ def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_siz
         # --- Initialization of Model and Trainer
         lightning_model = EEGLightningWrapper(model_class, model_input_size, d_model, nhead, lr)
 
+        tb_logger = TensorBoardLogger(save_dir=checkpoints_base_dir, name=f"logs_fold_{fold_num}")
         trainer = pl.Trainer(
             max_epochs=epochs,
             accelerator="gpu" if torch.cuda.is_available() else "cpu",
@@ -570,7 +582,7 @@ def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_siz
             precision="16-mixed",  # Adequate to torch.cuda.amp!
             gradient_clip_val=1.0,  # Adequate to clip_grad_norm_!
             callbacks=[checkpoint_callback],
-            logger=False,
+            logger=tb_logger,
             enable_model_summary=True
         )
 
@@ -580,7 +592,7 @@ def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_siz
 
         if resume_ckpt:
             print(f"Fount previous checkpoint. Trying to resume training last session (Fold: {fold_num})")
-        trainer.fit(lightning_model, train_loader, test_loader, ckpt_path=resume_ckpt)
+        trainer.fit(lightning_model, train_dataloaders=train_loader, val_dataloaders=test_loader, ckpt_path=resume_ckpt)
 
         # Results from best model each fold
         best_model_path = checkpoint_callback.best_model_path
@@ -590,6 +602,15 @@ def train_cross_individual_torch(subject_data, model_class, epochs=30, batch_siz
             fold_acc = best_score.item()
             fold_accuracies.append(fold_acc)
             print(f"Najlepsze Val Acc dla Fold {fold_num}: {fold_acc * 100:.2f}% (Zapisano w: {best_model_path})")
+
+        del trainer
+        del lightning_model
+        del train_loader
+        del test_loader
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     avg_accuracy = np.mean(fold_accuracies)
     print(f"\n--- Trening PyTorch Lightning Zakończony ---")

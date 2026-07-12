@@ -26,6 +26,40 @@ class SimpleEEGDataset(Dataset):
         x = (x - mean) / torch.clamp(std, min=1e-5)
         return x, self.y[idx]
 
+
+class SimpleEEGDataset2(Dataset):
+    def __init__(self, x, y, subject_ids=None, is_train=False):
+        self.is_train = is_train
+
+        # Konwersja na float32
+        self.X = torch.tensor(x, dtype=torch.float32)
+
+        # Etykiety i BŁĄD OUT OF BOUNDS
+        # Konwertujemy do tensor. W tym przypadku y ma zazwyczaj wartości 1 i 2 (z adnotacji .edf)
+        y_tensor = torch.tensor(y, dtype=torch.long)
+
+        # Bezpieczne mapowanie do 0 i 1 niezależnie czy wejdzie (1, 2) czy (0, 1)
+        unique_classes = torch.unique(y_tensor)
+        if 2 in unique_classes:
+            y_tensor = y_tensor - 1  # 1 staje się 0, 2 staje się 1
+
+        self.y = y_tensor
+        self.subject_ids = subject_ids
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        # Pobieramy konkretną próbkę i jej odpowiedź
+        # Próbka oryginalnie ma kształt (Kanały, Czas), np. (64, 1536)
+        x = self.X[idx]
+        label = self.y[idx]
+
+        # Normalizacja z-score jest usunięta - wykonujemy ją już poprawnie
+        # w preprocessingu MNE (metoda __normalise i dodawanie noise)!
+
+        return x, label
+
 class LazySubjectDataset(Dataset):
     """
     PyTorch Dataset pointing directly to the loaded subject_data dictionary.
@@ -352,7 +386,7 @@ def split_dataset_return_training(subject_data, test_patient_count=15, batch_siz
     y_global_test = np.concatenate(y_test_list, axis=0)
 
     # Save global data loader for all tests
-    global_test_dataset = SimpleEEGDataset(x_global_test, y_global_test, is_train=False, subject_ids=subject_id_test_list)
+    global_test_dataset = SimpleEEGDataset2(x_global_test, y_global_test, is_train=False, subject_ids=subject_id_test_list)
     global_test_loader = DataLoader(global_test_dataset, batch_size=batch_size, shuffle=False)
 
     loader_path = f"./saved_model_states/global_data_loader/test_loader_batch_{batch_size}.pth"
