@@ -1,12 +1,13 @@
 import os
 import numpy as np
 import torch
-import torch.nn as nn
 import mne
-import copy
-from sklearn.model_selection import KFold, StratifiedKFold
-from torch.utils.data import DataLoader, Dataset, TensorDataset
 import matplotlib.pyplot as plt
+import scipy.io as sio
+import re
+
+import tensorboard # needed for Logging?
+import edfio # needed for EDF Export
 
 from model_classes import TemporalTransformer
 import captum_analysis as captum
@@ -207,7 +208,174 @@ def visualise_raw_recordings():
     plt.tight_layout()
     plt.show()
 
+
+def convert_mat_to_annotated_edf(mat_file_path, output_dir):
+    """
+    Konwertuje pliki sXX.mat z zestawu GigaDB na ustrukturyzowane pliki .edf.
+    Skaluje prawidłowo jednostki EEG unikając błędu limitu 8-znakowego w EDF,
+    filtruje zepsute próbki oraz zachowuje poprawną oś czasu dla późniejszych operacji MNE.
+    """
+    try:
+        mat = sio.loadmat(mat_file_path, simplify_cells=True)
+    except Exception as e:
+        raise IOError(f"Nie udało się otworzyć pliku {mat_file_path}: {e}")
+
+    if 'eeg' not in mat:
+        raise KeyError(f"Oczekiwano klucza 'eeg' w pliku .mat.")
+    eeg = mat['eeg']
+
+    # 1. Pobranie parametrów czasowych
+    fs = float(eeg.get('srate', 512.0))
+    t_start_ms = float(eeg['frame'][0])  # zazwyczaj -2000.0 ms
+    t_end_ms = float(eeg['frame'][1])  # zazwyczaj 5000.0 ms
+
+    duration_sec = (t_end_ms - t_start_ms) / 1000.0  # 7.0s
+    n_samples_per_trial = int(round(duration_sec * fs))
+    time_to_event_sec = abs(t_start_ms) / 1000.0  # Zazwyczaj zdarzenie jest w 2.0s próbki
+
+    # 2. Pobieramy tylko 64 kanały (bez potencjalnego EXG na końcu)
+    raw_left = np.array(eeg['imagery_left'], dtype=np.float32)
+    raw_right = np.array(eeg['imagery_right'], dtype=np.float32)
+
+    n_channels = min(64, raw_left.shape[0])
+    n_trials_left = raw_left.shape[1] // n_samples_per_trial
+    n_trials_right = raw_right.shape[1] // n_samples_per_trial
+
+    # Rozbicie ze sklejonych na wymiary: (kanały, próby, czas), a potem (próby, kanały, czas)
+    img_left = raw_left[:n_channels, :].reshape(n_channels, n_trials_left, n_samples_per_trial)
+    img_left = np.transpose(img_left, (1, 0, 2))
+
+    img_right = raw_right[:n_channels, :].reshape(n_channels, n_trials_right, n_samples_per_trial)
+    img_right = np.transpose(img_right, (1, 0, 2))
+
+    # 3. Obsługa uszkodzonych próbek (Bad Trials) - struktura ma listy array'ów
+    bt_dict = eeg.get('bad_trial_indeces', {})
+
+    def extract_bad_indices(class_idx):
+        bads = []
+        for k in ['bad_trial_idx_mi', 'bad_trial_idx_voltage']:
+            if k in bt_dict and isinstance(bt_dict[k], (list, tuple, np.ndarray)) and len(bt_dict[k]) > class_idx:
+                arr = bt_dict[k][class_idx]
+                # Sprawdzamy czy to nparray z jakimiś danymi (np. jeśli puste, size = 0)
+                if isinstance(arr, np.ndarray) and arr.size > 0:
+                    bads.extend(arr.tolist())
+        # Przeliczamy indeksowanie z MATLAB na Python (od 0) i tworzymy unikalny zbiór
+        return list(set([int(x) - 1 for x in bads]))
+
+    # Zakładamy klasyczny podział bad_trials w liście [Left, Right]
+    bad_trials_left = extract_bad_indices(0)
+    bad_trials_right = extract_bad_indices(1)
+
+    if bad_trials_left:
+        img_left = np.delete(img_left, bad_trials_left, axis=0)
+    if bad_trials_right:
+        img_right = np.delete(img_right, bad_trials_right, axis=0)
+
+    # 4. Łączymy "czyste" bloki (nie stosujemy tutaj maskowania/obcinania długości, dajemy całe 7 sekund!)
+    X = np.concatenate([img_left, img_right], axis=0)
+
+    y = np.concatenate([
+        np.ones(img_left.shape[0], dtype=int),
+        np.ones(img_right.shape[0], dtype=int) * 2
+    ])
+
+    # KRYTYCZNE ZABEZPIECZENIE (ROZWIĄZUJE VALUE_ERROR Z ZAKRESEM)
+    # Surowe ADC/mikrowolty konwertujemy na Volty używając 1e-6 (format MNE natywny)
+    X_volts = X * 1e-6
+
+    # 5. Tworzenie nazw elektrod i struktury do RawArray
+    biosemi_64 = [
+        'Fp1', 'AF7', 'AF3', 'F1', 'F3', 'F5', 'F7', 'FT7', 'FC5', 'FC3', 'FC1', 'C1', 'C3', 'C5', 'T7', 'TP7',
+        'CP5', 'CP3', 'CP1', 'P1', 'P3', 'P5', 'P7', 'P9', 'PO7', 'PO3', 'O1', 'Iz', 'Oz', 'POz', 'Pz', 'CPz',
+        'FPz', 'FP2', 'AF8', 'AF4', 'AFz', 'Fz', 'F2', 'F4', 'F6', 'F8', 'FT8', 'FC6', 'FC4', 'FC2', 'FCz', 'Cz',
+        'C2', 'C4', 'C6', 'T8', 'TP8', 'CP6', 'CP4', 'CP2', 'P2', 'P4', 'P6', 'P8', 'P10', 'PO8', 'PO4', 'O2'
+    ]
+
+    concatenated_data = X_volts.transpose(1, 0, 2).reshape(n_channels, -1)
+    new_info = mne.create_info(ch_names=biosemi_64[:n_channels], sfreq=fs, ch_types='eeg')
+    concatenated_raw = mne.io.RawArray(concatenated_data, new_info, verbose=False)
+
+    # 6. Tworzenie i przypisywanie adnotacji
+    annot_onsets = []
+    annot_durations = []
+    annot_descriptions = []
+
+    epoch_duration = duration_sec  # Skok co równe 7 sekund
+    n_epochs = X_volts.shape[0]
+
+    for i in range(n_epochs):
+        # Umieszczamy punkt sygnału "Onset" z przesunięciem (najpewniej po 2-sekundowej rozbiegówce epoki)
+        # Dzięki temu tmin=1 i tmax=3 ze starego kodu uderzy we właściwy moment sklejonej struktury raw!
+        annot_onsets.append(i * epoch_duration + time_to_event_sec)
+        annot_durations.append(0.0)  # Wydarzenie chwilowe, z niego MNE odczyta '1 do 3 sekund do przodu'
+        desc = 'imagery_left_hand' if y[i] == 1 else 'imagery_right_hand'
+        annot_descriptions.append(desc)
+
+    annotations = mne.Annotations(
+        onset=annot_onsets,
+        duration=annot_durations,
+        description=annot_descriptions
+    )
+    concatenated_raw.set_annotations(annotations)
+
+    # 7. Zapis pliku EDF i obsługa nazwy
+    base_name = os.path.basename(mat_file_path)
+    match = re.match(r"^[sS](\d+)", base_name)
+    subject_id = f"S{int(match.group(1)):03d}" if match else "S000"
+
+    subject_dir = os.path.join(output_dir, subject_id)
+    os.makedirs(subject_dir, exist_ok=True)
+    edf_file_path = os.path.join(subject_dir, f"{subject_id}.edf")
+
+    mne.export.export_raw(edf_file_path, concatenated_raw, fmt='edf', overwrite=True, verbose=False)
+    print(f"Pomyślnie przetworzono i zapisano: {edf_file_path}")
+
+
 def main():
+    # INPUT_FOLDER = "./data/GigaSource"
+    # OUTPUT_FOLDER = "./preprocessed_data"
+    #
+    # all_mat_files = glob.glob(os.path.join(INPUT_FOLDER, "*.mat"))
+    #
+    # # Filtrujemy pliki przy użyciu wyrażeń regularnych
+    # # Akceptujemy tylko nazwy typu sXX.mat (np. s01.mat, s52.mat)
+    # # Wykluczamy pliki z tekstem typu s01_trial_sequence_v1.mat
+    # eeg_files = []
+    # for f in all_mat_files:
+    #     name = os.path.basename(f)
+    #     if re.match(r"^[sS]\d+\.mat$", name):
+    #         eeg_files.append(f)
+    #
+    # # Sortujemy, aby pliki przetwarzały się po kolei (s01, s02...)
+    # eeg_files = sorted(eeg_files)
+    # total_files = len(eeg_files)
+    #
+    # print(f"Znaleziono {total_files} właściwych plików sygnałowych (np. s01.mat).")
+    #
+    # if total_files == 0:
+    #     print(f"Ostrzeżenie: Nie znaleziono plików dopasowanych do wzorca 'sXX.mat' w folderze '{INPUT_FOLDER}'.")
+    #     print("Upewnij się, że ścieżka wejściowa jest poprawna oraz pliki nie są rozpakowane do głębszych podfolderów.")
+    #
+    # successful_conversions = 0
+    #
+    # for idx, mat_path in enumerate(eeg_files, start=1):
+    #     filename = os.path.basename(mat_path)
+    #     print(f"\n[{idx}/{total_files}] Przetwarzanie: {filename}")
+    #
+    #     try:
+    #         convert_mat_to_annotated_edf(
+    #             mat_file_path=mat_path,
+    #             output_dir=OUTPUT_FOLDER
+    #         )
+    #         successful_conversions += 1
+    #     except Exception as e:
+    #         print(f"Błąd podczas konwersji pliku {filename}: {e}")
+    #
+    # print("\n--- Podsumowanie procesu ---")
+    # print(f"Pomyślnie przetworzono: {successful_conversions}/{total_files} plików.")
+    # print(f"Dane wyjściowe zostały zapisane w strukturze folderów w: {os.path.abspath(OUTPUT_FOLDER)}")
+    # return
+
     # visualise_raw_recordings()
     # return
 
@@ -229,9 +397,9 @@ def main():
     #
     # return
 
-    TEST_PATIENT_SET_LEN = 8
-    DATA_PATH = "./preprocessed_data/Physionet"
-    SEGMENT_TYPE = "6s"
+    TEST_PATIENT_SET_LEN = 7
+    DATA_PATH = "./preprocessed_data/GigaDB"
+    SEGMENT_TYPE = "3s"
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {DEVICE}")
@@ -247,7 +415,7 @@ def main():
     )
 
     # ----------------------------------------------------------
-    best_model, _ = train.train_cross_individual(training_subject_data, TemporalTransformer, DEVICE, 10, 16)
+    best_model, _ = train.train_cross_individual_torch(training_subject_data, TemporalTransformer, 10, 16)
     torch.save(best_model, f"./saved_model_states/temporal_transformer_2seconds_end_test_best_2.pth")
 
     # best_model_low_stats, _ = train_cross_individual(subject_data, TemporalTransformer, DEVICE, 5, 16, 0.0001, 32, 4)
