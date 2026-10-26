@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eeg-xai"
+version = "0.1.0"
+requires-python = ">=3.10"
+# torch celowo pominięty: na Colabie jest preinstalowany
+dependencies = [
+    "mne",
+    "scikit-learn",
+    "pytorch_lightning",
+    "captum",
+    "joblib",
+    "pyriemann",
+    "matplotlib",
+    "tensorboard",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 160
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "NPY"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+include = ["src", "notebooks"]
